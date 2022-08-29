@@ -21,6 +21,7 @@ from anomalib.models.ganomaly import Ganomaly
 from anomalib.models.padim import Padim
 from anomalib.models.patchcore import Patchcore
 from anomalib.models.reverse_distillation import ReverseDistillation
+from anomalib.models.semi_orthogonal import SemiOrthogonal
 from anomalib.models.stfpm import Stfpm
 
 __all__ = [
@@ -34,6 +35,7 @@ __all__ = [
     "Patchcore",
     "ReverseDistillation",
     "Stfpm",
+    "SemiOrthogonal",
 ]
 
 logger = logging.getLogger(__name__)
@@ -82,6 +84,7 @@ def get_model(config: Union[DictConfig, ListConfig]) -> AnomalyModule:
         "patchcore",
         "reverse_distillation",
         "stfpm",
+        "semi_orthogonal",
     ]
     model: AnomalyModule
 
