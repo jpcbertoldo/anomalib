@@ -4,6 +4,10 @@
 # pylint: disable=line-too-long
 https://www.esrf.fr/home/UsersAndScience/Experiments/StructMaterials/ID11/techniques/diffraction-contrast-tomography.html
 
+TODO: this should evolve to a separate HDF5 reader that should be optionally pre-load or read on the fly (important feature for big high-resolution datasets)
+this one would be a composition of three of those (raw, ref, dark)
+
+TODO: dont' forget to get the log(data)
 
 """
 from typing import Optional
