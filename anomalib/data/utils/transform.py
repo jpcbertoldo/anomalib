@@ -82,6 +82,12 @@ def get_transforms(
     transforms: A.Compose
 
     if config is not None:
+        
+        assert image_size is None, "Both config and image_size cannot be provided. Provide either config file to de-serialize transforms or image_size to get the default transformations."
+        assert center_crop is None, "Both config and center_crop cannot be provided. Provide either config file to de-serialize transforms or center_crop to get the default transformations."
+
+        logger.info("``normalization`` and ``to_tensor`` will be ignored because ``config`` is provided.")
+        
         # load transforms from config file
         if isinstance(config, str):
             logger.info("Reading transforms from Albumentations config file: %s.", config)
