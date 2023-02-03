@@ -199,6 +199,29 @@ class MVTec(AnomalibDataModule):
         val_split_ratio (float): Fraction of train or test images that will be reserved for validation.
         seed (Optional[int], optional): Seed which may be set to a fixed value for reproducibility.
     """
+    
+    CATEGORY_BOTTLE = "bottle"
+    CATEGORY_CARPET = "carpet"
+    CATEGORY_LEATHER = "leather"
+    CATEGORY_PILL = "pill"
+    CATEGORY_TILE = "tile"
+    CATEGORY_WOOD = "wood"
+    CATEGORY_CABLE = "cable"
+    CATEGORY_GRID = "grid"
+    CATEGORY_TOOTHBRUSH = "toothbrush"
+    CATEGORY_ZIPPER = "zipper"
+    CATEGORY_CAPSULE = "capsule"
+    CATEGORY_HAZELNUT = "hazelnut"
+    CATEGORY_METAL_NUT = "metal_nut"
+    CATEGORY_SCREW = "screw"
+    CATEGORY_TRANSISTOR = "transistor"
+
+    CATEGORIES = [
+        CATEGORY_BOTTLE, CATEGORY_CARPET, CATEGORY_LEATHER, CATEGORY_PILL,
+        CATEGORY_TILE, CATEGORY_WOOD, CATEGORY_CABLE, CATEGORY_GRID,
+        CATEGORY_TOOTHBRUSH, CATEGORY_ZIPPER, CATEGORY_CAPSULE, CATEGORY_HAZELNUT,
+        CATEGORY_METAL_NUT, CATEGORY_SCREW, CATEGORY_TRANSISTOR,
+    ]
 
     def __init__(
         self,
