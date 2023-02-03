@@ -174,28 +174,34 @@ class AnomalibDataModule(LightningDataModule, ABC):
 
         return _is_setup
 
-    def train_dataloader(self) -> TRAIN_DATALOADERS:
+    def train_dataloader(self, **overwrite_dataloader_kwargs) -> TRAIN_DATALOADERS:
         """Get train dataloader."""
-        return DataLoader(
+        kwargs = dict(
             dataset=self.train_data, shuffle=True, batch_size=self.train_batch_size, num_workers=self.num_workers
         )
+        kwargs.update(overwrite_dataloader_kwargs)
+        return DataLoader(**kwargs)
 
-    def val_dataloader(self) -> EVAL_DATALOADERS:
+    def val_dataloader(self, **overwrite_dataloader_kwargs) -> EVAL_DATALOADERS:
         """Get validation dataloader."""
-        return DataLoader(
+        kwargs = dict(
             dataset=self.val_data,
             shuffle=False,
             batch_size=self.eval_batch_size,
             num_workers=self.num_workers,
             collate_fn=collate_fn,
         )
+        kwargs.update(overwrite_dataloader_kwargs)
+        return DataLoader(**kwargs)
 
-    def test_dataloader(self) -> EVAL_DATALOADERS:
+    def test_dataloader(self, **overwrite_dataloader_kwargs) -> EVAL_DATALOADERS:
         """Get test dataloader."""
-        return DataLoader(
+        kwargs = dict(
             dataset=self.test_data,
             shuffle=False,
             batch_size=self.eval_batch_size,
             num_workers=self.num_workers,
             collate_fn=collate_fn,
         )
+        kwargs.update(overwrite_dataloader_kwargs)
+        return DataLoader(**kwargs)
