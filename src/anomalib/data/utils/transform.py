@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import logging
+from copy import deepcopy
 from enum import Enum
 
 import albumentations as A
@@ -21,6 +22,178 @@ class InputNormalizationMethod(str, Enum):
 
     NONE = "none"  # no normalization applied
     IMAGENET = "imagenet"  # normalization to ImageNet statistics
+
+    @staticmethod
+    def get_transform(input_normalization_method: "InputNormalizationMethod") -> A.Compose:
+        """Get normalization transform.
+
+        Args:
+            input_normalization_method (InputNormalizationMethod)
+
+        Returns:
+            A.Compose: Normalization transform with pre-defined parameters.
+
+        Raises:
+            ValueError: When normalization method is not recognized.
+        """
+        if input_normalization_method == InputNormalizationMethod.IMAGENET:
+            return A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
+        
+        elif input_normalization_method == InputNormalizationMethod.NONE:
+            return A.ToFloat(max_value=255)  # FIXME this is a misleading name, it should be ToFloat255 or something
+        
+        else:
+            raise ValueError(f"Unknown normalization method: {input_normalization_method}")
+
+
+class PredefinedTranforms(str, Enum):
+    """Predefined transforms for the input images."""
+    
+    IMAGENET = "imagenet"
+    GAUSSIANAD = "gaussian-ad"
+    
+
+def build_tranform_gaussian_ad(
+    flip, rotate90, background_edge, rotate45, 
+    augment_probability, image_size, normalization, to_tensor,
+):
+    """Get transforms for GaussianAD.
+    
+    augment_probability=0.5 is used in the original code by default.    
+      
+    Base on 
+    https://github.com/ORippler/gaussian-ad-mvtec/blob/bc10bd736d85b750410e6b0e7ac843061e09511e/src/common/augmentation.py
+    
+    Changes due to deprecated functions:
+    (old) --> (new)
+    # IAASharpen --> Sharpen
+    # IAAEmboss --> Emboss
+    # IAAAdditiveGaussianNoise --> GaussNoise
+    
+    """
+
+    transforms_list = []
+
+    # resize image
+    if image_size is not None:
+        resize_height, resize_width = get_image_height_and_width(image_size)
+        transforms_list.append(A.Resize(height=resize_height, width=resize_width, always_apply=True))
+
+    augmentations = []
+
+    # pixel-wise augmentations
+    # based on `pixel_aug(noise=True)` in
+    augmentations.extend([
+        A.OneOf(
+            [
+                A.MotionBlur(p=0.2),
+                A.MedianBlur(blur_limit=3, p=0.1),
+                A.Blur(blur_limit=3, p=0.1),
+            ],
+            p=0.2,
+        ),
+        A.OneOf(
+            [
+                A.CLAHE(clip_limit=2),
+                # A.IAASharpen(),
+                A.Sharpen(),
+                # A.IAAEmboss(),
+                A.Emboss(),
+                A.RandomBrightnessContrast(brightness_limit=(-0.1, 0.2)),
+            ],
+            p=0.3,
+        ),
+        A.HueSaturationValue(
+            hue_shift_limit=10, val_shift_limit=(-10, 20), p=0.3
+        ),
+        A.OneOf(
+            [
+                # A.IAAAdditiveGaussianNoise(scale=(0.01 * 255, 0.03 * 255), per_channel=False),
+                # A.IAAAdditiveGaussianNoise(scale=(0.01 * 255, 0.03 * 255), per_channel=True),
+                A.GaussNoise(var_limit=(0.01 * 255, 0.03 * 255), per_channel=False),
+                A.GaussNoise(var_limit=(0.01 * 255, 0.03 * 255), per_channel=True),
+            ],
+            p=0.2,
+        ),
+    ])
+    
+    # image-wise augmentations
+    # based on `detection_aug()` in
+    if flip:
+        augmentations.append(A.HorizontalFlip())
+        
+    if rotate90:
+        augmentations.append(A.RandomRotate90())
+        
+    augmentations.append(
+        A.ShiftScaleRotate(
+            shift_limit=0.05 if background_edge else 0,
+            scale_limit=(-0.05, 0.1 if background_edge else 0),
+            rotate_limit=(45 if rotate45 else 15) if background_edge else 0,
+            p=0.2,
+        )
+    )
+    
+    if augment_probability > 0:
+        # the original code used p=0.5 at this compose by default
+        transforms_list.append(A.Compose(augmentations, p=augment_probability))
+    
+    # normalization
+    transforms_list.append(InputNormalizationMethod.get_transform(normalization))
+
+    # tensor conversion
+    if to_tensor:
+        transforms_list.append(ToTensorV2())
+
+    return A.Compose(transforms_list)
+
+
+def get_tranform_gaussian_ad(category, config):
+    """Get transforms for GaussianAD with predefined parameters or build it from kwargs."""
+    
+    if category is None:
+        return build_tranform_gaussian_ad(**config)
+    
+    # from MVTecAD.augmentation_info() from gaussian-ad-mvtec/src/datasets/mvteacad.py
+    PREDEF_KWARGS_BY_CATEGORY = dict(
+        bottle=dict(flip=True, rotate90=True, rotate45=False, background_edge=True),
+        carpet=dict(flip=True, rotate90=True, rotate45=True, background_edge=True),
+        leather=dict(flip=True, rotate90=True, rotate45=True, background_edge=True),
+        pill=dict(flip=False, rotate90=True, rotate45=False, background_edge=True),
+        tile=dict(flip=True, rotate90=True, rotate45=True, background_edge=True),
+        wood=dict(flip=True, rotate90=True, rotate45=False, background_edge=True),
+        cable=dict(flip=True, rotate90=True, rotate45=False, background_edge=True),
+        grid=dict(flip=True, rotate90=True, rotate45=True, background_edge=False),
+        toothbrush=dict(flip=True, rotate90=True, rotate45=False, background_edge=True),
+        zipper=dict(flip=True, rotate90=True, rotate45=False, background_edge=True),
+        capsule=dict(flip=False, rotate90=True, rotate45=False, background_edge=True),
+        hazelnut=dict(flip=True, rotate90=True, rotate45=True, background_edge=True),
+        metal_nut=dict(flip=False, rotate90=True, rotate45=False, background_edge=True),
+        screw=dict(flip=False, rotate90=True, rotate45=False, background_edge=True),
+        transistor=dict(flip=True, rotate90=False, rotate45=False, background_edge=True),
+    )
+    
+    return build_tranform_gaussian_ad(**{**config, **PREDEF_KWARGS_BY_CATEGORY[category]})
+        
+
+def get_predifined_transform(predifined, config):
+    """Get predefined transform."""
+    
+    if predifined == PredefinedTranforms.IMAGENET:
+        # FIXME this is temporary, in reality there would be the code in the "else" of get_transforms
+        return get_transforms(
+            image_size=config['image_size'],
+            center_crop=config['center_crop'],
+            normalization=InputNormalizationMethod.IMAGENET,
+            to_tensor=config['to_tensor'],
+        )
+    
+    elif predifined == PredefinedTranforms.GAUSSIANAD:
+        config = deepcopy(config)
+        return get_tranform_gaussian_ad(category=config.pop('category', None), config=config)
+    
+    else:
+        raise ValueError(f"Predefined transform ``{predifined}`` not recognized.")
 
 
 def get_transforms(
@@ -82,19 +255,23 @@ def get_transforms(
     transforms: A.Compose
 
     if config is not None:
-        
-        assert image_size is None, "Both config and image_size cannot be provided. Provide either config file to de-serialize transforms or image_size to get the default transformations."
-        assert center_crop is None, "Both config and center_crop cannot be provided. Provide either config file to de-serialize transforms or center_crop to get the default transformations."
 
-        logger.info("``normalization`` and ``to_tensor`` will be ignored because ``config`` is provided.")
+        logger.info("``image_size``, ``center_crop``, ``normalization`` and ``to_tensor`` will be ignored because ``config`` is provided.")
         
         # load transforms from config file
         if isinstance(config, str):
             logger.info("Reading transforms from Albumentations config file: %s.", config)
             transforms = A.load(filepath=config, data_format="yaml")
+            
         elif isinstance(config, A.Compose):
             logger.info("Transforms loaded from Albumentations Compose object")
             transforms = config
+            
+        elif isinstance(config, dict):
+            config = deepcopy(config)
+            predifined = config.pop("predefined")
+            transforms = get_predifined_transform(predifined, config)
+            
         else:
             raise ValueError("config could be either ``str`` or ``A.Compose``")
     else:
@@ -119,12 +296,7 @@ def get_transforms(
             transforms_list.append(A.CenterCrop(height=crop_height, width=crop_width, always_apply=True))
 
         # add normalize transform
-        if normalization == InputNormalizationMethod.IMAGENET:
-            transforms_list.append(A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)))
-        elif normalization == InputNormalizationMethod.NONE:
-            transforms_list.append(A.ToFloat(max_value=255))
-        else:
-            raise ValueError(f"Unknown normalization method: {normalization}")
+        transforms_list.append(InputNormalizationMethod.get_transform(normalization))
 
         # add tensor conversion
         if to_tensor:
