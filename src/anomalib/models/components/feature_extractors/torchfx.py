@@ -8,6 +8,7 @@ from __future__ import annotations
 import importlib
 from dataclasses import dataclass, field
 from typing import Callable
+from pathlib import Path
 
 import torch
 from torch import Tensor, nn
@@ -132,17 +133,33 @@ class TorchFXFeatureExtractor(nn.Module):
         if isinstance(backbone, nn.Module):
             backbone_model = backbone
         else:
+            
             if isinstance(backbone.class_path, str):
                 backbone_class = self._get_backbone_class(backbone.class_path)
                 backbone_model = backbone_class(weights=weights, **backbone.init_args)
-            else:
+                
+            else:  # is a class (module)
                 backbone_class = backbone.class_path
                 backbone_model = backbone_class(**backbone.init_args)
-            if isinstance(weights, WeightsEnum):  # torchvision models
+
+            # HOTFIX 
+            # weights as a string is assumed to be a path or a WeightsEnum
+            # it is deduced from the existence of the file
+
+            # TODO check if this is in upstream and propose changes
+            # there is a bug: lightning modules break if a `WeightsEnum` is passed as argument
+            # `ValueError: Weights(...) is not a valid EfficientNet_B4_Weights`
+            # but it can be a string, but then it will conflict with the `str` type here, whihc is assumed to be a path
+            
+            # torchvision models
+            if isinstance(weights, WeightsEnum) or (
+                isinstance(weights, str) and not Path(weights).exists()
+            ):  
                 feature_extractor = create_feature_extractor(model=backbone_model, return_nodes=return_nodes)
+    
             else:
+                assert isinstance(weights, str), "Weights should point to a path"
                 if weights is not None:
-                    assert isinstance(weights, str), "Weights should point to a path"
                     model_weights = torch.load(weights)
                     if "state_dict" in model_weights:
                         model_weights = model_weights["state_dict"]
