@@ -19,8 +19,10 @@ from anomalib.data.synthetic import SyntheticAnomalyDataset
 from anomalib.data.utils import (
     TestSplitMode,
     ValSplitMode,
+    ValSplitConfig,
     random_split,
     split_by_label,
+    split_kfold,
 )
 
 logger = logging.getLogger(__name__)
@@ -70,13 +72,21 @@ class AnomalibDataModule(LightningDataModule, ABC):
         train_batch_size: int,
         eval_batch_size: int,
         num_workers: int,
+        # TODO migrate all the code to use only `val_split_config`
         val_split_mode: ValSplitMode,
         val_split_ratio: float,
+        val_split_config: ValSplitConfig | None = None,
         test_split_mode: TestSplitMode | None = None,
         test_split_ratio: float | None = None,
         seed: int | None = None,
     ) -> None:
         super().__init__()
+        
+        # TODO remove assert after migration to `val_split_config`
+        if val_split_mode == ValSplitMode.FROM_TRAIN_KFOLD:
+            assert val_split_config is not None
+            assert val_split_mode == val_split_config.mode, f"{val_split_mode=} != {val_split_config.mode=}"
+        
         self.train_batch_size = train_batch_size
         self.eval_batch_size = eval_batch_size
         self.num_workers = num_workers
@@ -84,8 +94,9 @@ class AnomalibDataModule(LightningDataModule, ABC):
         self.test_split_ratio = test_split_ratio
         self.val_split_mode = val_split_mode
         self.val_split_ratio = val_split_ratio
+        self.val_split_config = val_split_config
         self.seed = seed
-
+        
         self.train_data: AnomalibDataset
         self.val_data: AnomalibDataset
         self.test_data: AnomalibDataset
@@ -157,6 +168,13 @@ class AnomalibDataModule(LightningDataModule, ABC):
             # converted from random training sample
             self.train_data, normal_val_data = random_split(self.train_data, self.val_split_ratio, seed=self.seed)
             self.val_data = SyntheticAnomalyDataset.from_dataset(normal_val_data)
+        elif self.val_split_mode == ValSplitMode.FROM_TRAIN_KFOLD:
+            self.train_data, self.val_data = split_kfold(
+                self.train_data, 
+                k=self.val_split_config.kfold_num_splits,
+                fold_index=self.val_split_config.kfold_split_index,
+            )
+            
         elif self.val_split_mode != ValSplitMode.NONE:
             raise ValueError(f"Unknown validation split mode: {self.val_split_mode}")
 

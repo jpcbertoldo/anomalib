@@ -22,6 +22,8 @@ from .split import (
     concatenate_datasets,
     random_split,
     split_by_label,
+    ValSplitConfig,
+    split_kfold,
 )
 from .transform import InputNormalizationMethod, get_transforms
 
@@ -49,4 +51,6 @@ __all__ = [
     "_check_and_convert_path",
     "_prepare_files_labels",
     "_resolve_path",
+    "ValSplitConfig",
+    "split_kfold",
 ]

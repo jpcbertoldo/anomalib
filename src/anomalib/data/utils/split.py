@@ -13,6 +13,8 @@ These function are useful
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import math
 import warnings
 from enum import Enum
@@ -47,6 +49,46 @@ class ValSplitMode(str, Enum):
     SAME_AS_TEST = "same_as_test"
     FROM_TEST = "from_test"
     SYNTHETIC = "synthetic"
+    FROM_TRAIN_KFOLD = "from_train_kfold"
+    
+
+@dataclass
+class ValSplitConfig:
+    """Configurations for validation split.
+    
+    This class holds all the possible configurations for validation split and makes sure
+    they are consistent according to the `ValSplitMode`.
+    """
+
+    mode: ValSplitMode
+        
+    kfold_num_splits: int | None = None
+    kfold_split_index: int | None = None
+    
+    # TODO migrate `seed` to this class
+    # TODO migrate `val_split_ratio` to this class
+
+    def __post_init__(self):
+        
+        if self.mode == ValSplitMode.NONE:
+            pass
+        
+        elif self.mode == ValSplitMode.SAME_AS_TEST:
+            pass 
+        
+        elif self.mode == ValSplitMode.FROM_TEST:
+            pass
+        
+        elif self.mode == ValSplitMode.SYNTHETIC:
+            pass
+        
+        elif self.mode == ValSplitMode.FROM_TRAIN_KFOLD:
+            assert self.kfold_num_splits is not None
+            assert self.kfold_split_index is not None
+            assert self.kfold_split_index < self.kfold_num_splits
+        
+        else:
+            raise ValueError(f"Unknown validation split mode {self.mode}.")
 
 
 def concatenate_datasets(datasets: Sequence[AnomalibDataset]) -> AnomalibDataset:
@@ -134,3 +176,36 @@ def split_by_label(dataset: AnomalibDataset) -> tuple[AnomalibDataset, AnomalibD
     normal_subset = dataset.subsample(list(normal_indices))
     anomalous_subset = dataset.subsample(list(anomalous_indices))
     return normal_subset, anomalous_subset
+
+
+def split_kfold(dataset: AnomalibDataset, k: int, fold_index: int) -> tuple[AnomalibDataset, AnomalibDataset]:
+    """Splits the dataset into two subsets using k-fold cross validation.
+
+    Args:
+        dataset (AnomalibDataset): Source dataset
+        k (int): Number of splits
+        index (int): Index of the split that will be used as validation set
+
+    Returns:
+        tuple[AnomalibDataset, AnomalibDataset]: Tuple of train and validation datasets
+    """
+    assert k >= 2, f"k must be at least 2, found {k=}"
+    assert 0 <= fold_index < k, f"index must be between 0 and k-1, found {fold_index=}"
+
+    num_samples = len(dataset)
+    
+    # nominal number of samples per fold
+    num_samples_perfold = num_samples // k
+      
+    # number of samples in last fold (may be larger)
+    num_samples_lastfold = num_samples - (k - 1) * num_samples_perfold  
+    
+    folds_lengths = [num_samples_perfold] * (k - 1) + [num_samples_lastfold]
+    
+    fold_start = sum(folds_lengths[:fold_index])
+    fold_end = fold_start + folds_lengths[fold_index]
+    fold_indices = list(range(fold_start, fold_end))
+    
+    non_fold_indices = sorted(set(range(num_samples)) - set(fold_indices))
+    
+    return dataset.subsample(non_fold_indices), dataset.subsample(fold_indices)
