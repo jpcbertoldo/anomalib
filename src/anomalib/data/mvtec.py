@@ -42,6 +42,7 @@ from anomalib.data.utils import (
     ValSplitMode,
     download_and_extract,
     get_transforms,
+    ValSplitConfig,
 )
 
 logger = logging.getLogger(__name__)
@@ -242,6 +243,7 @@ class MVTec(AnomalibDataModule):
         test_split_ratio: float = 0.2,
         val_split_mode: ValSplitMode = ValSplitMode.SAME_AS_TEST,
         val_split_ratio: float = 0.5,
+        val_split_config: ValSplitConfig | None = None,
         seed: int | None = None,
     ) -> None:
         super().__init__(
@@ -252,6 +254,7 @@ class MVTec(AnomalibDataModule):
             test_split_ratio=test_split_ratio,
             val_split_mode=val_split_mode,
             val_split_ratio=val_split_ratio,
+            val_split_config=val_split_config,
             seed=seed,
         )
 
