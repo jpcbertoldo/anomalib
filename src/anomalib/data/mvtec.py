@@ -241,8 +241,6 @@ class MVTec(AnomalibDataModule):
         transform_config_eval: str | A.Compose | None = None,
         test_split_mode: TestSplitMode = TestSplitMode.FROM_DIR,
         test_split_ratio: float = 0.2,
-        val_split_mode: ValSplitMode = ValSplitMode.SAME_AS_TEST,
-        val_split_ratio: float = 0.5,
         val_split_config: ValSplitConfig | None = None,
         seed: int | None = None,
     ) -> None:
@@ -252,8 +250,6 @@ class MVTec(AnomalibDataModule):
             num_workers=num_workers,
             test_split_mode=test_split_mode,
             test_split_ratio=test_split_ratio,
-            val_split_mode=val_split_mode,
-            val_split_ratio=val_split_ratio,
             val_split_config=val_split_config,
             seed=seed,
         )

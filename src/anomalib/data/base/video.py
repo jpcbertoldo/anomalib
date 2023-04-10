@@ -115,7 +115,7 @@ class AnomalibVideoDataModule(AnomalibDataModule):
         self.train_data.setup()
         self.test_data.setup()
 
-        if self.val_split_mode == ValSplitMode.SYNTHETIC:
+        if self.val_split_mode == ValSplitMode.SYNTHETIC_SPLIT_TRAIN:
             raise ValueError(f"Val split mode {self.test_split_mode} not supported for video datasets.")
 
         self._create_val_split()

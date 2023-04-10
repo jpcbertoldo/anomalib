@@ -48,7 +48,8 @@ class ValSplitMode(str, Enum):
     NONE = "none"
     SAME_AS_TEST = "same_as_test"
     FROM_TEST = "from_test"
-    SYNTHETIC = "synthetic"
+    SYNTHETIC_SPLIT_TRAIN = "synthetic_split_train"
+    SYNTHETIC_FROM_TRAIN = "synthetic_from_train"
     FROM_TRAIN_KFOLD = "from_train_kfold"
     
 
@@ -61,12 +62,16 @@ class ValSplitConfig:
     """
 
     mode: ValSplitMode
-        
+    
+    split_ratio: float | None = None
+    
+    anomalous_ratio: float | None = None
+    augmenter_kwargs: dict | None = None
+    
     kfold_num_splits: int | None = None
     kfold_split_index: int | None = None
     
-    # TODO migrate `seed` to this class
-    # TODO migrate `val_split_ratio` to this class
+    seed: int | None = None
 
     def __post_init__(self):
         
@@ -74,13 +79,27 @@ class ValSplitConfig:
             pass
         
         elif self.mode == ValSplitMode.SAME_AS_TEST:
-            pass 
+            pass
         
         elif self.mode == ValSplitMode.FROM_TEST:
-            pass
+            assert self.split_ratio is not None
+            assert self.seed is not None
         
-        elif self.mode == ValSplitMode.SYNTHETIC:
-            pass
+        elif self.mode == ValSplitMode.SYNTHETIC_SPLIT_TRAIN:
+            assert self.split_ratio is not None
+            assert self.seed is not None
+            if self.anomalous_ratio is None:
+                self.anomalous_ratio = 0.5
+            assert 0 < self.anomalous_ratio <= 1
+            if self.augmenter_kwargs is None:
+                self.augmenter_kwargs = {}
+                    
+        elif self.mode == ValSplitMode.SYNTHETIC_FROM_TRAIN:
+            if self.anomalous_ratio is None:
+                self.anomalous_ratio = 0.5
+            assert 0 < self.anomalous_ratio <= 1
+            if self.augmenter_kwargs is None:
+                self.augmenter_kwargs = {}
         
         elif self.mode == ValSplitMode.FROM_TRAIN_KFOLD:
             assert self.kfold_num_splits is not None

@@ -72,29 +72,23 @@ class AnomalibDataModule(LightningDataModule, ABC):
         train_batch_size: int,
         eval_batch_size: int,
         num_workers: int,
-        # TODO migrate all the code to use only `val_split_config`
-        val_split_mode: ValSplitMode,
-        val_split_ratio: float,
-        val_split_config: ValSplitConfig | None = None,
+        val_split_config: ValSplitConfig,
         test_split_mode: TestSplitMode | None = None,
         test_split_ratio: float | None = None,
         seed: int | None = None,
     ) -> None:
         super().__init__()
         
-        # TODO remove assert after migration to `val_split_config`
-        if val_split_mode == ValSplitMode.FROM_TRAIN_KFOLD:
-            assert val_split_config is not None
-            assert val_split_mode == val_split_config.mode, f"{val_split_mode=} != {val_split_config.mode=}"
-        
         self.train_batch_size = train_batch_size
         self.eval_batch_size = eval_batch_size
         self.num_workers = num_workers
+        
+        # TODO migrate to `TestSplitConfig` design 
         self.test_split_mode = test_split_mode
         self.test_split_ratio = test_split_ratio
-        self.val_split_mode = val_split_mode
-        self.val_split_ratio = val_split_ratio
-        self.val_split_config = val_split_config
+        
+        self.val_split_config: ValSplitConfig = val_split_config
+        
         self.seed = seed
         
         self.train_data: AnomalibDataset
@@ -102,6 +96,11 @@ class AnomalibDataModule(LightningDataModule, ABC):
         self.test_data: AnomalibDataset
 
         self._samples: DataFrame | None = None
+
+    @property
+    def val_split_mode(self) -> ValSplitMode:
+        raise DeprecationWarning("The `val_split_mode` property is deprecated. Use `val_split_config.mode` instead.")
+        return self.val_split_config.mode
 
     def setup(self, stage: str | None = None) -> None:
         """Setup train, validation and test data.
@@ -156,27 +155,52 @@ class AnomalibDataModule(LightningDataModule, ABC):
 
     def _create_val_split(self) -> None:
         """Obtain the validation set based on the settings in the config."""
-        if self.val_split_mode == ValSplitMode.FROM_TEST:
+        
+        if self.val_split_config.mode == ValSplitMode.FROM_TEST:
+            
             # randomly sampled from test set
             self.test_data, self.val_data = random_split(
-                self.test_data, self.val_split_ratio, label_aware=True, seed=self.seed
+                self.test_data, self.val_split_config.split_ratio, label_aware=True, seed=self.val_split_config.seed,
             )
-        elif self.val_split_mode == ValSplitMode.SAME_AS_TEST:
+            
+        elif self.val_split_config.mode == ValSplitMode.SAME_AS_TEST:
+            
             # equal to test set
             self.val_data = self.test_data
-        elif self.val_split_mode == ValSplitMode.SYNTHETIC:
+            
+        elif self.val_split_config.mode == ValSplitMode.SYNTHETIC_SPLIT_TRAIN:
+            
             # converted from random training sample
-            self.train_data, normal_val_data = random_split(self.train_data, self.val_split_ratio, seed=self.seed)
-            self.val_data = SyntheticAnomalyDataset.from_dataset(normal_val_data)
-        elif self.val_split_mode == ValSplitMode.FROM_TRAIN_KFOLD:
+            self.train_data, normal_val_data = random_split(
+                self.train_data, 
+                self.val_split_config.split_ratio, 
+                seed=self.val_split_config.seed,
+            )
+            self.val_data = SyntheticAnomalyDataset.from_dataset(
+                normal_val_data, 
+                anomalous_ratio=self.val_split_config.anomalous_ratio,
+                augmenter_kwargs=self.val_split_config.augmenter_kwargs,
+            )
+            
+        elif self.val_split_config.mode == ValSplitMode.SYNTHETIC_FROM_TRAIN:
+            
+            self.val_data = SyntheticAnomalyDataset.from_dataset(
+                self.train_data, 
+                anomalous_ratio=self.val_split_config.anomalous_ratio,
+                augmenter_kwargs=self.val_split_config.augmenter_kwargs,
+            )
+            
+        elif self.val_split_config.mode == ValSplitMode.FROM_TRAIN_KFOLD:
+            
             self.train_data, self.val_data = split_kfold(
                 self.train_data, 
                 k=self.val_split_config.kfold_num_splits,
                 fold_index=self.val_split_config.kfold_split_index,
             )
             
-        elif self.val_split_mode != ValSplitMode.NONE:
-            raise ValueError(f"Unknown validation split mode: {self.val_split_mode}")
+        elif self.val_split_config.mode != ValSplitMode.NONE:
+            
+            raise ValueError(f"Unknown validation split mode: {self.val_split_config.mode}")
 
     @property
     def is_setup(self) -> bool:
