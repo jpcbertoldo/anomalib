@@ -32,7 +32,11 @@ ROOT = "./.tmp/synthetic_anomaly"
 
 
 def make_synthetic_dataset(
-    source_samples: DataFrame, image_dir: Path, mask_dir: Path, anomalous_ratio: float = 0.5
+    source_samples: DataFrame, 
+    image_dir: Path, 
+    mask_dir: Path, 
+    anomalous_ratio: float = 0.5,
+    augmenter_kwargs: dict = {},
 ) -> DataFrame:
     """Convert a set of normal samples into a mixed set of normal and synthetic anomalous samples.
 
@@ -58,7 +62,11 @@ def make_synthetic_dataset(
     anomalous_samples = anomalous_samples.reset_index(drop=True)
 
     # initialize augmenter
-    augmenter = Augmenter("./datasets/dtd", p_anomalous=1.0, beta=(0.01, 0.2))
+    augmenter_kwargs = {
+        **dict(anomaly_source_path="./datasets/dtd", p_anomalous=1.0, beta=(0.01, 0.2)),
+        **augmenter_kwargs,  # overwrite default values with user specified values
+    }
+    augmenter = Augmenter(**augmenter_kwargs)
 
     # initialize transform for source images
     transform = A.Compose([A.ToFloat(), ToTensorV2()])
@@ -110,10 +118,19 @@ class SyntheticAnomalyDataset(AnomalibDataset):
         source_samples (DataFrame): Normal samples to which the anomalous augmentations will be applied.
     """
 
-    def __init__(self, task: TaskType, transform: A.Compose, source_samples: DataFrame) -> None:
+    def __init__(
+        self, 
+        task: TaskType, 
+        transform: A.Compose, 
+        source_samples: DataFrame, 
+        anomalous_ratio: float = 0.5, 
+        augmenter_kwargs: dict = {},
+    ) -> None:
         super().__init__(task, transform)
 
         self.source_samples = source_samples
+        self.anomalous_ratio = anomalous_ratio
+        self.augmenter_kwargs = augmenter_kwargs
 
         # Files will be written to a temporary directory in the workdir, which is cleaned up after code execution
         root = Path(ROOT)
@@ -131,14 +148,25 @@ class SyntheticAnomalyDataset(AnomalibDataset):
         self.setup()
 
     @classmethod
-    def from_dataset(cls, dataset: AnomalibDataset) -> SyntheticAnomalyDataset:
+    def from_dataset(
+        cls, 
+        dataset: AnomalibDataset, 
+        anomalous_ratio: float = 0.5, 
+        augmenter_kwargs: dict = {}
+    ) -> SyntheticAnomalyDataset:
         """Create a synthetic anomaly dataset from an existing dataset of normal images.
 
         Args:
             dataset (AnomalibDataset): Dataset consisting of only normal images that will be converrted to a synthetic
                 anomalous dataset with a 50/50 normal anomalous split.
         """
-        return cls(task=dataset.task, transform=dataset.transform, source_samples=dataset.samples)
+        return cls(
+            task=dataset.task, 
+            transform=dataset.transform, 
+            source_samples=dataset.samples, 
+            anomalous_ratio=anomalous_ratio,
+            augmenter_kwargs=augmenter_kwargs,
+        )
 
     def __copy__(self) -> SyntheticAnomalyDataset:
         """Returns a shallow copy of the dataset object and prevents cleanup when original object is deleted."""
@@ -160,7 +188,7 @@ class SyntheticAnomalyDataset(AnomalibDataset):
     def _setup(self) -> None:
         """Create samples dataframe."""
         logger.info("Generating synthetic anomalous images for validation set")
-        self.samples = make_synthetic_dataset(self.source_samples, self.im_dir, self.mask_dir, 0.5)
+        self.samples = make_synthetic_dataset(self.source_samples, self.im_dir, self.mask_dir, self.anomalous_ratio, self.augmenter_kwargs)
 
     def __del__(self) -> None:
         """Make sure the temporary directory is cleaned up when the dataset object is deleted."""
