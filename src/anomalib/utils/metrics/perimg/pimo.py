@@ -31,10 +31,27 @@ from torch import Tensor
 
 from .binclf_curve import PerImageBinClfCurve, _validate_atleast_one_anomalous_image, _validate_atleast_one_normal_image
 from .common import (
+    _bounded_lims,
+    _perimg_boxplot_stats,
+    _plot_perimg_metric_boxplot,
+    _validate_aucs,
     _validate_image_classes,
     _validate_perimg_rate_curves,
     _validate_rate_curve,
 )
+
+# =========================================== VALIDATIONS ===========================================
+
+
+def _validate_atleast_one_anomalous_image(image_classes: Tensor):
+    if (image_classes == 1).sum() == 0:
+        raise ValueError("Expected argument at least one anomalous image, but found none.")
+
+
+def _validate_atleast_one_normal_image(image_classes: Tensor):
+    if (image_classes == 0).sum() == 0:
+        raise ValueError("Expected argument at least one normal image, but found none.")
+
 
 # =========================================== PLOT ===========================================
 
@@ -161,6 +178,28 @@ def plot_pimo_curves(
     ax.yaxis.set_minor_locator(FixedLocator(np.linspace(0, 1, 11)))
 
     ax.set_title("Per-Image Overlap Curves")
+
+    return fig, ax
+
+
+def _plot_aupimo_boxplot(aucs: Tensor, image_classes: Tensor, ax: Axes | None = None) -> tuple[Figure | None, Axes]:
+    _validate_aucs(aucs, nan_allowed=True)
+    _validate_atleast_one_anomalous_image(image_classes)
+
+    fig, ax = _plot_perimg_metric_boxplot(
+        values=aucs,
+        image_classes=image_classes,
+        only_class=1,
+        ax=ax,
+    )
+
+    # don't go beyond the [0, 1] -+ \epsilon range in the X-axis
+    XLIM_EPSILON = 0.01
+    _bounded_lims(ax, axis=0, bounds=(0 - XLIM_EPSILON, 1 + XLIM_EPSILON))
+    ax.xaxis.set_major_formatter(PercentFormatter(1))
+
+    ax.set_xlabel("AUPImO [%]")
+    ax.set_title("Area Under the Per-Image Overlap (AUPImO) Boxplot")
 
     return fig, ax
 
@@ -311,6 +350,31 @@ class AUPImO(PImO):
             logfpr=False,
         )
         ax.set_xlabel("Mean FPR on Normal Images")
+        return fig, ax
+
+    def boxplot_stats(self) -> list[dict[str, str | int | float | None]]:
+        """Compute boxplot stats of AUPImO values (e.g. median, mean, quartiles, etc.).
+
+        Returns:
+            list[dict[str, str | int | float | None]]: List of AUCs statistics from a boxplot.
+            refer to `anomalib.utils.metrics.perimg.common._perimg_boxplot_stats()` for the keys and values.
+        """
+        _, __, ___, aucs = self.compute()
+        image_classes = self._image_classes_tensor
+        stats = _perimg_boxplot_stats(values=aucs, image_classes=image_classes, only_class=1)
+        return stats
+
+    def plot_boxplot(
+        self,
+        ax: Axes | None = None,
+    ) -> tuple[Figure | None, Axes]:
+        """Plot boxplot of AUPImO values."""
+        thresholds, shared_fpr, tprs, aucs = self.compute()
+        fig, ax = _plot_aupimo_boxplot(
+            aucs=aucs,
+            image_classes=self._image_classes_tensor,
+            ax=ax,
+        )
         return fig, ax
 
 
