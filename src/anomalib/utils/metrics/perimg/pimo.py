@@ -21,12 +21,15 @@ further: also choose the th upper bound to be the max score at normal pixels
 
 from __future__ import annotations
 
+from typing import Any
+
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from matplotlib.axes import Axes
 from matplotlib.pyplot import Figure
 from matplotlib.ticker import FixedLocator, LogFormatter, PercentFormatter
+from numpy import ndarray
 from torch import Tensor
 
 from .binclf_curve import PerImageBinClfCurve, _validate_atleast_one_anomalous_image, _validate_atleast_one_normal_image
@@ -40,19 +43,6 @@ from .common import (
     _validate_rate_curve,
 )
 
-# =========================================== VALIDATIONS ===========================================
-
-
-def _validate_atleast_one_anomalous_image(image_classes: Tensor):
-    if (image_classes == 1).sum() == 0:
-        raise ValueError("Expected argument at least one anomalous image, but found none.")
-
-
-def _validate_atleast_one_normal_image(image_classes: Tensor):
-    if (image_classes == 0).sum() == 0:
-        raise ValueError("Expected argument at least one normal image, but found none.")
-
-
 # =========================================== PLOT ===========================================
 
 
@@ -60,10 +50,11 @@ def plot_pimo_curves(
     shared_fpr: Tensor,
     tprs: Tensor,
     image_classes: Tensor,
+    *kwargs_perimg: dict[str, Any] | None,
+    # ---
     ax: Axes | None = None,
     logfpr: bool = False,
-    logfpr_epsilon: float = 1e-6,
-    *kwargs_perimg,
+    logfpr_epsilon: float = 1e-4,
     **kwargs_shared,
 ) -> tuple[Figure | None, Axes]:
     """Plot shared FPR vs Per-Image Overlap (PImO) curves.
@@ -80,7 +71,9 @@ def plot_pimo_curves(
         logfpr_epsilon: small positive number to avoid `log(0)`; used only if `logfpr` is True
 
         *kwargs_perimg: keyword arguments passed to `ax.plot()` and SPECIFIC to each curve
-                            if provided it should be a list of dicts of length `num_images`
+                            if provided it should be a list of dicts of length `num_images`.
+                            If None, that curve will not be ploted.
+
         **kwargs: keyword arguments passed to `ax.plot()` and SHARED by all curves
 
         If both `kwargs_perimg` and `kwargs_shared` have the same key, the value in `kwargs_perimg` will be used.
@@ -124,10 +117,10 @@ def plot_pimo_curves(
             f"but got {len(kwargs_perimg)} dicts and {tprs.shape[0]} images, respectively."
         )
 
-    elif not all(isinstance(kwargs, dict) for kwargs in kwargs_perimg):
+    elif not all(isinstance(kws, dict) or kws is None for kws in kwargs_perimg):
         raise ValueError("Expected argument `kwargs_perimg` to be a list of dicts, but got other type(s).")
 
-    fig, ax = plt.subplots() if ax is None else (None, ax)
+    fig, ax = plt.subplots(figsize=(7, 6)) if ax is None else (None, ax)
 
     # override defaults with user-provided values
     kwargs_shared = {
@@ -135,13 +128,22 @@ def plot_pimo_curves(
         **kwargs_shared,
     }
 
-    for idx, curve in enumerate(tprs):
-        img_cls = image_classes[idx]
+    for imgidx, (curve, img_cls) in enumerate(zip(tprs, image_classes)):
         if img_cls == 0:  # normal image
             continue
-        kwargs_specific = kwargs_perimg[idx] if len(kwargs_perimg) > 0 else {}
-        kw = {**kwargs_shared, **kwargs_specific}
-        ax.plot(shared_fpr, curve, label=f"idx={idx:03}", **kw)
+
+        # default label and shared kwargs
+        kw = {**dict(label=f"idx={imgidx:03}"), **kwargs_shared}  # override sequence (left to right)
+
+        if len(kwargs_perimg) == 0:
+            pass
+        elif kwargs_perimg[imgidx] is None:
+            continue
+        else:
+            # override with image-specific kwargs
+            kw_img: dict[str, Any] = kwargs_perimg[imgidx]  # type: ignore
+            kw = {**kw, **kw_img}  # type: ignore
+        ax.plot(shared_fpr, curve, **kw)
 
     ax.set_xlabel("Shared FPR")
 
@@ -178,6 +180,101 @@ def plot_pimo_curves(
     ax.yaxis.set_minor_locator(FixedLocator(np.linspace(0, 1, 11)))
 
     ax.set_title("Per-Image Overlap Curves")
+
+    return fig, ax
+
+
+def plot_pimo_curves_of_boxplot_stats(
+    # same as `plot_pimo_curves()`
+    shared_fpr,
+    tprs,
+    image_classes,
+    # new
+    aupimo_boxplot_stats: list[dict[str, str | int | float | None]],
+    # same
+    ax: Axes | None = None,
+    logfpr: bool = False,
+    logfpr_epsilon: float = 1e-4,
+    # new
+    lax: Axes | None = None,
+    # same
+    **kwargs_shared,
+) -> tuple[Figure | None, Axes]:
+    """Plot shared FPR vs Per-Image Overlap (PImO) curves only for the boxplot stats cases.
+
+    Args:
+        arguments not mentioned here are as in `plot_pimo_curves()`
+        Refer to `anomalib.utils.metrics.perimg.pimo.plot_pimo_curves()`
+
+        This one does not have the argument `kwargs_perimg` because it's used to plot the curves of individual
+            images only with their corresponding statistic and hide the other curves.
+
+        aupimo_boxplot_stats: list of dicts, each dict is a boxplot stat of AUPImO values
+                                refer to `anomalib.utils.metrics.perimg.common._perimg_boxplot_stats()`
+        lax: matplotlib Axes for the legend; if None, it will be on the same ax
+
+    Returns:
+        fig, ax
+    """
+
+    if len(aupimo_boxplot_stats) == 0:
+        raise ValueError("Expected argument `aupimo_boxplot_stats` to have at least one dict, but got none.")
+
+    imgidxs_toplot_fliers = {s["imgidx"] for s in aupimo_boxplot_stats if s["statistic"] in ("flierlo", "flierhi")}
+    imgidxs_toplot_others = {s["imgidx"] for s in aupimo_boxplot_stats if s["statistic"] not in ("flierlo", "flierhi")}
+
+    kwargs_perimg = []
+
+    # it's not necessary to validate (shared_fpr, tprs, image_classes) because
+    # they are validated in `plot_pimo_curves()` and only used for this:
+    num_images = len(image_classes)
+    for imgidx in range(num_images):
+        if imgidx in imgidxs_toplot_fliers:
+            kwargs_perimg.append(dict(linewidth=0.5, color="gray", alpha=0.8, linestyle="--", label="flier"))
+            continue
+
+        if imgidx not in imgidxs_toplot_others:
+            # don't plot this curve
+            kwargs_perimg.append(None)  # type: ignore
+            continue
+
+        imgidx_stats = [s for s in aupimo_boxplot_stats if s["imgidx"] == imgidx]
+
+        # edge case where more than one stat falls on the same image
+        stat_dict = imgidx_stats[0]
+
+        if len(imgidx_stats) > 1:
+            stat_dict["statistic"] = " & ".join(s["statistic"] for s in imgidx_stats)  # type: ignore
+
+        stat, nearest = stat_dict["statistic"], stat_dict["nearest"]
+        kwargs_perimg.append(dict(linewidth=1, alpha=1, label=f"{stat} (AUPImO={nearest:.1%}) (imgidx={imgidx})"))
+
+    fig, ax = plot_pimo_curves(
+        shared_fpr,
+        tprs,
+        image_classes,
+        *kwargs_perimg,
+        # ---
+        ax=ax,
+        logfpr=logfpr,
+        logfpr_epsilon=logfpr_epsilon,
+        **kwargs_shared,
+    )
+
+    # legend
+    hs_lbls = list(zip(*ax.get_legend_handles_labels()))
+    # keep a single flier handle in the legend (if any)
+    hs_lbls_fliers = tuple((h, lbl) for h, lbl in hs_lbls if lbl == "flier")
+    hs_lbls_others = tuple((h, lbl) for h, lbl in hs_lbls if lbl != "flier")
+    hs_lbls = hs_lbls_others + hs_lbls_fliers[:1]  # type: ignore
+    hs_lbls = tuple(zip(*hs_lbls))  # type: ignore
+
+    if lax is None:
+        ax.legend(*hs_lbls, title="boxplot stats", loc="lower right", fontsize="small", title_fontsize="small")
+    else:
+        lax.legend(*hs_lbls, title="boxplot stats", loc="center")
+
+    ax.set_title("Per-Image Overlap Curves (only AUC boxplot statistics)")
 
     return fig, ax
 
@@ -221,7 +318,7 @@ class PImO(PerImageBinClfCurve):
     Note about other shared FPR alternatives:
         It can be made harder by using the cross-image max (or high-percentile) FPRs instead of the mean.
         I.e. the shared-fp axis (x-axies) is a statistic (across normal images) at each threshold.
-        Rationale: this will further punish models that have outlier-ly FPs in normal images.
+        Rationale: this will further punish models that have exceptional FPs in normal images.
 
     FP: False Positive
     FPR: False Positive Rate
@@ -335,20 +432,40 @@ class AUPImO(PImO):
 
     def plot_pimo_curves(
         self,
+        logfpr: bool = False,
+        show: str = "boxplot",
         ax: Axes | None = None,
     ) -> tuple[Figure | None, Axes] | tuple[None, None]:
         """Plot shared FPR vs Per-Image Overlap (PImO) curves."""
         if self.is_empty:
             return None, None
-        thresholds, shared_fpr, tprs, image_classes, aucs = self.compute()
-        # TODO customize special cases
-        fig, ax = plot_pimo_curves(
-            shared_fpr=shared_fpr,
-            tprs=tprs,
-            image_classes=image_classes,
-            ax=ax,
-            logfpr=False,
-        )
+        thresholds, shared_fpr, tprs, aucs = self.compute()
+        image_classes = self._image_classes_tensor
+
+        if show == "all":
+            fig, ax = plot_pimo_curves(
+                shared_fpr,
+                tprs,
+                image_classes,
+                ax=ax,
+                logfpr=logfpr,
+            )
+
+        elif show == "boxplot":
+            fig, ax = plot_pimo_curves_of_boxplot_stats(
+                shared_fpr,
+                tprs,
+                image_classes,
+                # ---
+                self.boxplot_stats(),
+                # ---
+                ax=ax,
+                logfpr=logfpr,
+            )
+
+        else:
+            raise ValueError(f"Expected argument `show` to be one of 'all' or 'boxplot', but got {show}.")
+
         ax.set_xlabel("Mean FPR on Normal Images")
         return fig, ax
 
@@ -376,6 +493,38 @@ class AUPImO(PImO):
             ax=ax,
         )
         return fig, ax
+
+    def plot(
+        self,
+        logfpr: bool = False,
+        axes: Axes | ndarray | None = None,
+    ) -> tuple[Figure | None, Axes | ndarray]:
+        """Plot AUPImO boxplot with its statistics' PImO curves."""
+
+        if axes is None:
+            fig, axes = plt.subplots(1, 2, figsize=(14, 6), width_ratios=[6, 8])
+            fig.suptitle("Area Under the Per-Image Overlap (AUPImO) Curves")
+            fig.set_tight_layout(True)
+        else:
+            fig, axes = (None, axes)
+
+        if isinstance(axes, Axes):
+            return self.plot_pimo_curves(ax=axes, logfpr=logfpr, show="boxplot")
+
+        if not isinstance(axes, ndarray):
+            raise ValueError(f"Expected argument `axes` to be a matplotlib Axes or ndarray, but got {type(axes)}.")
+
+        if axes.size != 2:
+            raise ValueError(
+                f"Expected argument `axes` , when type `ndarray`, to be of size 2, but got size {axes.size}."
+            )
+
+        axes = axes.flatten()
+        self.plot_boxplot(ax=axes[0])
+        axes[0].set_title("Boxplot")
+        self.plot_pimo_curves(ax=axes[1], logfpr=logfpr, show="boxplot")
+        axes[1].set_title("PImO Curves")
+        return fig, axes
 
 
 class AULogPImO(PImO):

@@ -158,15 +158,7 @@ def _perimg_boxplot_stats(
             - 'value': Value of the statistic (same units as `values`).
             - 'nearest': Some statistics (e.g. 'mean') are not guaranteed to be in the tensor, so this is the
                             closest to the statistic in an actual image (i.e. in `values`).
-                         It is None if the statistic is in the tensor.
             - 'imgidx': Index of the image in `values` that has the `nearest` value to the statistic.
-
-            `nearest` and `imgidx`:
-                - If `value == values[imgidx]` (i.e. this will happen with quartiles), this is None.
-                - If `value` != values[imgidx]` (i.e. this will, most likely, happen with the mean),
-                    this is the value in `values` that is closest to `value`.
-
-                In both cases, `imgidx` is always valid.
     """
 
     _validate_image_classes(image_classes)
@@ -211,13 +203,13 @@ def _perimg_boxplot_stats(
             dict(
                 statistic=stat_,
                 value=val_,
-                nearest=nearest if nearest != val_ else None,  # None if the value is in the array
+                nearest=nearest,
                 imgidx=imgidx,
             )
         )
 
     for stat, val in boxplot_stats.items():
-        if stat == "iqr":
+        if stat in ("iqr", "cilo", "cihi"):
             continue
 
         elif stat != "fliers":
@@ -301,6 +293,7 @@ def _plot_perimg_metric_boxplot(
         widths=0.5,
         showmeans=True,
         showcaps=True,
+        notch=False,
     )
     _ = ax.set_yticks([])
 
@@ -310,7 +303,7 @@ def _plot_perimg_metric_boxplot(
         num_flierlo = len([s for s in bp_stats if s["statistic"] == "flierlo"])
         num_flierhi = len([s for s in bp_stats if s["statistic"] == "flierhi"])
         ax.annotate(
-            text=f"Number of images\n    total: {num_images}\n    outliers: {num_flierlo} low, {num_flierhi} high",
+            text=f"Number of images\n    total: {num_images}\n    fliers: {num_flierlo} low, {num_flierhi} high",
             xy=(0.03, 0.95),
             xycoords="axes fraction",
             xytext=(0, 0),
