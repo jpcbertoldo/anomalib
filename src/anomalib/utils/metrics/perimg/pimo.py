@@ -74,6 +74,9 @@ def plot_pimo_curves(
                             if provided it should be a list of dicts of length `num_images`.
                             If None, that curve will not be ploted.
 
+                            if provided it should be a list of dicts of length `num_images`.
+                            If None, that curve will not be ploted.
+
         **kwargs: keyword arguments passed to `ax.plot()` and SHARED by all curves
 
         If both `kwargs_perimg` and `kwargs_shared` have the same key, the value in `kwargs_perimg` will be used.
@@ -121,6 +124,7 @@ def plot_pimo_curves(
         raise ValueError("Expected argument `kwargs_perimg` to be a list of dicts, but got other type(s).")
 
     fig, ax = plt.subplots(figsize=(7, 6)) if ax is None else (None, ax)
+    fig, ax = plt.subplots(figsize=(7, 6)) if ax is None else (None, ax)
 
     # override defaults with user-provided values
     kwargs_shared = {
@@ -131,6 +135,19 @@ def plot_pimo_curves(
     for imgidx, (curve, img_cls) in enumerate(zip(tprs, image_classes)):
         if img_cls == 0:  # normal image
             continue
+
+        # default label and shared kwargs
+        kw = {**dict(label=f"idx={imgidx:03}"), **kwargs_shared}  # override sequence (left to right)
+
+        if len(kwargs_perimg) == 0:
+            pass
+        elif kwargs_perimg[imgidx] is None:
+            continue
+        else:
+            # override with image-specific kwargs
+            kw_img: dict[str, Any] = kwargs_perimg[imgidx]  # type: ignore
+            kw = {**kw, **kw_img}  # type: ignore
+        ax.plot(shared_fpr, curve, **kw)
 
         # default label and shared kwargs
         kw = {**dict(label=f"idx={imgidx:03}"), **kwargs_shared}  # override sequence (left to right)
@@ -318,6 +335,7 @@ class PImO(PerImageBinClfCurve):
     Note about other shared FPR alternatives:
         It can be made harder by using the cross-image max (or high-percentile) FPRs instead of the mean.
         I.e. the shared-fp axis (x-axies) is a statistic (across normal images) at each threshold.
+        Rationale: this will further punish models that have exceptional FPs in normal images.
         Rationale: this will further punish models that have exceptional FPs in normal images.
 
     FP: False Positive
