@@ -1,4 +1,5 @@
 import torch
+from matplotlib import pyplot as plt
 
 from anomalib.utils.metrics.perimg.pimo import AUPImO, PImO
 
@@ -99,6 +100,8 @@ def test_aupimo(
     assert computed_aupimos[:2].isnan().all()
     assert (computed_aupimos[2:] == expected_aupimos[2:]).all()
 
+    _ = aupimo.boxplot_stats()  # just check that it does not break
+
 
 def test_aupimo_plot(
     anomaly_maps, masks, expected_thresholds, expected_fpr, expected_tprs, expected_image_classes, expected_aupimos
@@ -106,6 +109,12 @@ def test_aupimo_plot(
     aupimo = AUPImO(num_thresholds=expected_thresholds.shape[0])
     aupimo.plot_pimo_curves()  # should not break
     aupimo.update(anomaly_maps, masks)
-    aupimo.plot_pimo_curves()
-    aupimo.plot_pimo_curves(show="all")
-    aupimo.plot_pimo_curves(show="boxplot")
+
+    fig, axes = plt.subplots(1, 2)
+    for ax in (None, axes[0]):
+        aupimo.plot_pimo_curves(ax=ax)
+        aupimo.plot_pimo_curves(ax=ax, show="all")
+        aupimo.plot_pimo_curves(ax=ax, show="boxplot")
+        aupimo.plot_boxplot(ax=ax)
+        aupimo.plot(axes=ax)
+    aupimo.plot(axes=axes)
