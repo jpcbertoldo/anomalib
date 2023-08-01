@@ -148,20 +148,6 @@ def plot_pimo_curves(
             kw_img: dict[str, Any] = kwargs_perimg[imgidx]  # type: ignore
             kw = {**kw, **kw_img}  # type: ignore
         ax.plot(shared_fpr, curve, **kw)
-
-        # default label and shared kwargs
-        kw = {**dict(label=f"idx={imgidx:03}"), **kwargs_shared}  # override sequence (left to right)
-
-        if len(kwargs_perimg) == 0:
-            pass
-        elif kwargs_perimg[imgidx] is None:
-            continue
-        else:
-            # override with image-specific kwargs
-            kw_img: dict[str, Any] = kwargs_perimg[imgidx]  # type: ignore
-            kw = {**kw, **kw_img}  # type: ignore
-        ax.plot(shared_fpr, curve, **kw)
-
     ax.set_xlabel("Shared FPR")
 
     if logfpr:
