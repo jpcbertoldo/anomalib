@@ -107,3 +107,5 @@ def test_aupimo_plot(
     aupimo.plot_pimo_curves()  # should not break
     aupimo.update(anomaly_maps, masks)
     aupimo.plot_pimo_curves()
+    aupimo.plot_pimo_curves(show="all")
+    aupimo.plot_pimo_curves(show="boxplot")

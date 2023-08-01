@@ -439,8 +439,8 @@ class AUPImO(PImO):
         """Plot shared FPR vs Per-Image Overlap (PImO) curves."""
         if self.is_empty:
             return None, None
-        thresholds, shared_fpr, tprs, aucs = self.compute()
-        image_classes = self._image_classes_tensor
+
+        thresholds, shared_fpr, tprs, image_classes, aucs = self.compute()
 
         if show == "all":
             fig, ax = plot_pimo_curves(
@@ -476,8 +476,8 @@ class AUPImO(PImO):
             list[dict[str, str | int | float | None]]: List of AUCs statistics from a boxplot.
             refer to `anomalib.utils.metrics.perimg.common._perimg_boxplot_stats()` for the keys and values.
         """
-        _, __, ___, aucs = self.compute()
-        image_classes = self._image_classes_tensor
+        _, __, ___, image_classes, aucs = self.compute()
+
         stats = _perimg_boxplot_stats(values=aucs, image_classes=image_classes, only_class=1)
         return stats
 
@@ -486,10 +486,10 @@ class AUPImO(PImO):
         ax: Axes | None = None,
     ) -> tuple[Figure | None, Axes]:
         """Plot boxplot of AUPImO values."""
-        thresholds, shared_fpr, tprs, aucs = self.compute()
+        thresholds, shared_fpr, tprs, image_classes, aucs = self.compute()
         fig, ax = _plot_aupimo_boxplot(
             aucs=aucs,
-            image_classes=self._image_classes_tensor,
+            image_classes=image_classes,
             ax=ax,
         )
         return fig, ax
