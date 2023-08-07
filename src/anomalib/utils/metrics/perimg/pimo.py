@@ -660,7 +660,8 @@ class AUPImO(PImO):
         aucs: Tensor = torch.trapezoid(tprs_auc, x=shared_fpr_auc, dim=1)
 
         # normalize the size of `aucs` by dividing by the x-range size
-        aucs /= self.fpr_auc_ubound
+        # clip(0, 1) makes sure that the values are in [0, 1] (in case of numerical errors)
+        aucs = (aucs / self.fpr_auc_ubound).clip(0, 1)
 
         return pimoresult, aucs
 
