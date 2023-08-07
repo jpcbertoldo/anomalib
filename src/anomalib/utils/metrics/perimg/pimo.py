@@ -42,7 +42,7 @@ from .common import (
 # =========================================== VALIDATIONS ===========================================
 
 
-def _validate_fpr_upper_bound(fpr: float | Tensor) -> None:
+def _validate_fpr_level(fpr: float | Tensor) -> None:
     if isinstance(fpr, float):
         fpr = torch.as_tensor(fpr)
 
@@ -84,7 +84,7 @@ def plot_pimo_curves(
     # ---
     ax: Axes | None = None,
     logfpr: bool = False,
-    logfpr_epsilon: float = 1e-4,
+    logfpr_epsilon: float = 1e-3,
     **kwargs_shared,
 ) -> tuple[Figure | None, Axes]:
     """Plot shared FPR vs Per-Image Overlap (PImO) curves.
@@ -168,12 +168,7 @@ def plot_pimo_curves(
     ax.set_xlabel("Shared FPR")
 
     if logfpr:
-        if logfpr_epsilon <= 0:
-            raise ValueError(f"Expected argument `logfpr_epsilon` to be positive, but got {logfpr_epsilon}.")
-
-        if logfpr_epsilon >= 1:
-            raise ValueError(f"Expected argument `logfpr_epsilon` to be less than 1, but got {logfpr_epsilon}.")
-
+        _validate_fpr_level(logfpr_epsilon)
         ax.set_xscale("log")
         ax.set_xlim(logfpr_epsilon, 1)
         eps_round_exponent = int(np.floor(np.log10(logfpr_epsilon)))
@@ -366,7 +361,7 @@ def plot_pimo_curves_of_boxplot_stats(
     # same
     ax: Axes | None = None,
     logfpr: bool = False,
-    logfpr_epsilon: float = 1e-4,
+    logfpr_epsilon: float = 1e-3,
     # same
     **kwargs_shared,
 ) -> tuple[Figure | None, Axes]:
@@ -622,7 +617,7 @@ class AUPImO(PImO):
         """
         super().__init__(num_thresholds=num_thresholds, **kwargs)
 
-        _validate_fpr_upper_bound(fpr_auc_ubound)
+        _validate_fpr_level(fpr_auc_ubound)
         self.register_buffer("fpr_auc_ubound", torch.as_tensor(fpr_auc_ubound, dtype=torch.float64))
 
     def __repr__(self) -> str:
