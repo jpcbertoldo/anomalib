@@ -79,7 +79,7 @@ def plot_pimo_curves(
     shared_fpr: Tensor,
     tprs: Tensor,
     image_classes: Tensor,
-    *kwargs_perimg: dict[str, Any] | None,
+    *kwargs_perimg: dict[str, Any | None] | None,
     # ---
     ax: Axes | None = None,
     logfpr: bool = False,
@@ -126,12 +126,11 @@ def plot_pimo_curves(
         )
 
     # `tprs` and `image_classes` have the same number of images
-    if image_classes is not None:
-        if tprs.shape[0] != image_classes.shape[0]:
-            raise ValueError(
-                f"Expected argument `tprs` to have the same number of images as argument `image_classes`, "
-                f"but got {tprs.shape[0]} images and {image_classes.shape[0]} images, respectively."
-            )
+    if tprs.shape[0] != image_classes.shape[0]:
+        raise ValueError(
+            f"Expected argument `tprs` to have the same number of images as argument `image_classes`, "
+            f"but got {tprs.shape[0]} images and {image_classes.shape[0]} images, respectively."
+        )
 
     # specific to TPR curves
     _validate_atleast_one_anomalous_image(image_classes)
@@ -202,6 +201,162 @@ def plot_pimo_curves(
     ax.set_title("Per-Image Overlap Curves")
 
     return fig, ax
+
+
+def plot_fprs_vs_shared_fpr(
+    fprs: Tensor,
+    shared_fpr: Tensor,
+    image_classes: Tensor,
+    *kwargs_perimg: dict[str, Any | None] | None,
+    # ---
+    ax: Axes | None = None,
+    **kwargs_shared,
+) -> tuple[Figure | None, Axes]:
+    """Plot shared FPR vs in-image FPR curves."""
+
+    _validate_perimg_rate_curves(fprs, nan_allowed=True)  # anomalous images may have `nan`s if all pixels are anomalous
+    _validate_rate_curve(shared_fpr)
+    _validate_image_classes(image_classes)
+
+    # `shared_fpr` and `fprs` have the same number of thresholds
+    if fprs.shape[1] != shared_fpr.shape[0]:
+        raise ValueError(
+            f"Expected argument `fprs` to have the same number of thresholds as argument `shared_fpr`, "
+            f"but got {fprs.shape[1]} thresholds and {shared_fpr.shape[0]} thresholds, respectively."
+        )
+
+    # `fprs` and `image_classes` have the same number of images
+    if fprs.shape[0] != image_classes.shape[0]:
+        raise ValueError(
+            f"Expected argument `fprs` to have the same number of images as argument `image_classes`, "
+            f"but got {fprs.shape[0]} images and {image_classes.shape[0]} images, respectively."
+        )
+
+    # there may be `nan`s but only in the anomalous images
+    # in the curves of normal images, there should NOT be `nan`s
+    if (image_classes == 1).sum() > 0:
+        _validate_perimg_rate_curves(fprs[image_classes == 1], nan_allowed=False)
+
+    _validate_kwargs_perimg(kwargs_perimg, num_images=fprs.shape[0])
+
+    fig, ax = plt.subplots(figsize=(7, 6)) if ax is None else (None, ax)
+
+    # override defaults with user-provided values
+    kwargs_shared = {
+        **dict(linewidth=0.5, linestyle="-", alpha=0.3),
+        **kwargs_shared,
+    }
+
+    for imgidx, (curve, img_cls) in enumerate(zip(fprs, image_classes)):
+        default_label = f"idx={imgidx:03} " + ("(norm)" if img_cls == 0 else "(anom)")
+        kw = {**dict(label=default_label), **kwargs_shared}  # override sequence (left to right)
+
+        if len(kwargs_perimg) == 0:
+            pass
+        elif kwargs_perimg[imgidx] is None:
+            continue
+        else:
+            # override with image-specific kwargs
+            kw_img: dict[str, Any] = kwargs_perimg[imgidx]  # type: ignore
+            kw = {**kw, **kw_img}  # type: ignore
+
+        ax.plot(shared_fpr, curve, **kw)
+
+    ax.set_xlabel("Shared FPR")
+
+    XLIM_EPSILON = 0.01
+    ax.set_xlim(0 - XLIM_EPSILON, 1 + XLIM_EPSILON)
+    ticks_major = np.linspace(0, 1, 6)
+    formatter_major = PercentFormatter(1, decimals=0)
+    ticks_minor = np.linspace(0, 1, 11)
+
+    ax.xaxis.set_major_locator(FixedLocator(ticks_major))
+    ax.xaxis.set_major_formatter(formatter_major)
+    ax.xaxis.set_minor_locator(FixedLocator(ticks_minor))
+
+    ax.set_ylabel("In-Image FPR")
+    YLIM_EPSILON = 0.01
+    ax.set_ylim(0 - YLIM_EPSILON, 1 + YLIM_EPSILON)
+    ax.yaxis.set_major_locator(FixedLocator(np.linspace(0, 1, 6)))
+    ax.yaxis.set_major_formatter(PercentFormatter(1, decimals=0))
+    ax.yaxis.set_minor_locator(FixedLocator(np.linspace(0, 1, 11)))
+
+    ax.set_title("FPR: Shared vs In-Image Curves")
+
+    return fig, ax
+
+
+def plot_fprs_vs_shared_fpr_predefviz(
+    fprs: Tensor,
+    shared_fpr: Tensor,
+    image_classes: Tensor,
+    mode: str,
+    # ---
+    ax: Axes | None = None,
+    **kwargs_shared,
+) -> tuple[Figure | None, Axes]:
+    """Pre-defined visualization of the shared FPR vs in-image FPR curves.
+
+    `mode="norm-vs-anom"`: normal images are in *blue*, anomalous images are in *red*
+
+    `mode="norm-only"`: only normal images are plotted along with their statistics across the images --
+                        it corresponds to taking (for ex) the mean along the y axis at a given x value in the plot.
+                        Statistics: min(), max(), and mean() wiht 3 SEM interval.
+
+    Args:
+        mode: one of {"norm-vs-anom", "norm-only"}
+        others as in `plot_fprs_vs_shared_fpr()`
+    """
+    _validate_image_classes(image_classes)
+
+    if mode == "norm-vs-anom":
+        _validate_atleast_one_anomalous_image(image_classes)
+        _validate_atleast_one_normal_image(image_classes)
+        # color the lines by the image class; normal = blue, anomalous = red
+        kwargs_perimg = [dict(color="blue" if imgclass == 0 else "red", label=None) for imgclass in image_classes]
+        # make a legend only show one normal and one anomalous line
+        # `[0][0]`: first `[0]` is for the tuple from `np.where()`, second `[0]` is for the first index
+        kwargs_perimg[np.where(image_classes == 0)[0][0]]["label"] = "normal (blue)"
+        kwargs_perimg[np.where(image_classes == 1)[0][0]]["label"] = "anomalous (red)"
+        fig, ax = plot_fprs_vs_shared_fpr(
+            fprs,
+            shared_fpr,
+            image_classes,
+            *kwargs_perimg,
+            ax=ax,
+            **kwargs_shared,
+        )
+        ax.set_title(ax.get_title() + " (Norm. vs Anom. Images)")
+        ax.legend(loc="lower right", fontsize="small", title_fontsize="small", title="image class")
+        return fig, ax
+
+    if mode == "norm-only":
+        _validate_atleast_one_normal_image(image_classes)
+        # don't plot anomalous images
+        kwargs_perimg = [dict(label=None) if imgclass == 0 else None for imgclass in image_classes]  # type: ignore
+        fig, ax = plot_fprs_vs_shared_fpr(
+            fprs,
+            shared_fpr,
+            image_classes,
+            *kwargs_perimg,
+            ax=ax,
+            **kwargs_shared,
+        )
+        fprs_norm = fprs[image_classes == 0]
+        ax.plot(
+            shared_fpr, mean := fprs_norm.mean(dim=0), color="black", linewidth=2, linestyle="--", alpha=1, label="mean"
+        )
+        ax.plot(shared_fpr, fprs_norm.min(dim=0)[0], color="green", linewidth=2, linestyle="--", alpha=1, label="min")
+        ax.plot(shared_fpr, fprs_norm.max(dim=0)[0], color="orange", linewidth=2, linestyle="--", alpha=1, label="max")
+        ax.set_title(ax.get_title() + " (Norm. Images Only)")
+        sem = fprs.std(dim=0) / torch.sqrt(torch.tensor(fprs.shape[0]))
+        ax.fill_between(
+            shared_fpr, mean - 3 * sem, mean + 3 * sem, color="black", alpha=0.5, label="3 SEM (mean's 99% CI)"
+        )
+        ax.legend(loc="lower right", fontsize="small", title_fontsize="small", title="Stats across images")
+        return fig, ax
+
+    raise ValueError(f"Expected argument `mode` to be one of {{'norm-vs-anom', 'norm-only'}}, but got {mode}.")
 
 
 def plot_pimo_curves_of_boxplot_stats(
