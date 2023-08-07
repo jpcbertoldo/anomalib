@@ -37,10 +37,25 @@ from .common import (
     _validate_perimg_rate_curves,
     _validate_rate_curve,
 )
-    
 
-def _validate_kwargs_perimg(kwargs_perimg: list[dict[str, Any] | None], num_images: int) -> None:
-    
+# =========================================== VALIDATIONS ===========================================
+
+
+def _validate_fpr_upper_bound(fpr: float | Tensor) -> None:
+    if isinstance(fpr, float):
+        fpr = torch.as_tensor(fpr)
+
+    elif not isinstance(fpr, Tensor):
+        raise ValueError(f"Expected argument `fpr` to be a float or torch.Tensor, but got {type(fpr)}.")
+
+    if fpr.dim() != 0:
+        raise ValueError(f"Expected argument `fpr` to be a scalar, but got a tensor of shape {fpr.shape}.")
+
+    if fpr <= 0 or fpr > 1:
+        raise ValueError(f"Expected argument `fpr` to be in (0, 1], but got {fpr}.")
+
+
+def _validate_kwargs_perimg(kwargs_perimg: tuple[dict[str, Any] | None, ...], num_images: int) -> None:
     if len(kwargs_perimg) == 0:
         pass
 
@@ -123,7 +138,7 @@ def plot_pimo_curves(
     # there may be `nan`s but only in the normal images
     # in the curves of anomalous images, there should NOT be `nan`s
     _validate_perimg_rate_curves(tprs[image_classes == 1], nan_allowed=False)
-    
+
     _validate_kwargs_perimg(kwargs_perimg, num_images=tprs.shape[0])
 
     fig, ax = plt.subplots(figsize=(7, 6)) if ax is None else (None, ax)
@@ -222,9 +237,10 @@ def plot_pimo_curves_of_boxplot_stats(
     if len(aupimo_boxplot_stats) == 0:
         raise ValueError("Expected argument `aupimo_boxplot_stats` to have at least one dict, but got none.")
 
-    imgidxs_toplot_fliers = {s["imgidx"] for s in aupimo_boxplot_stats if s["statistic"] in ("flierlo", "flierhi")}
     # it is sorted so that only the first one has a label (others are plotted but don't show in the legend)
-    imgidxs_toplot_fliers = sorted(imgidxs_toplot_fliers)
+    imgidxs_toplot_fliers: list[int] = sorted(
+        {s["imgidx"] for s in aupimo_boxplot_stats if s["statistic"] in ("flierlo", "flierhi")}  # type: ignore
+    )
     imgidxs_toplot_others = {s["imgidx"] for s in aupimo_boxplot_stats if s["statistic"] not in ("flierlo", "flierhi")}
 
     kwargs_perimg = []
@@ -233,7 +249,6 @@ def plot_pimo_curves_of_boxplot_stats(
     # they are validated in `plot_pimo_curves()` and only used for this:
     num_images = len(image_classes)
     for imgidx in range(num_images):
-        
         if imgidx in imgidxs_toplot_fliers:
             kw = dict(linewidth=0.5, color="gray", alpha=0.8, linestyle="--")
             # only one of them will show in the legend
@@ -270,19 +285,19 @@ def plot_pimo_curves_of_boxplot_stats(
         logfpr_epsilon=logfpr_epsilon,
         **kwargs_shared,
     )
-    
+
     def _sort_pimo_of_boxplot_legend(handles: list, labels: list[str]):
         """sort the legend by label and put 'flier' at the bottom
         not essential but it makes the legend 'more deterministic' and organized
         """
-        
+
         # [(handle0, label0), (handle1, label1),...]
-        handles_labels = list(zip(handles, labels))  
+        handles_labels = list(zip(handles, labels))
         handles_labels = sorted(handles_labels, key=lambda tup: tup[1])
 
         # ([handle0, handle1, ...], [label0, label1, ...])
-        handles, labels = tuple(map(list, zip(*handles_labels)))  # type: ignore  
-        
+        handles, labels = tuple(map(list, zip(*handles_labels)))  # type: ignore
+
         # put flier at the last position
         if "flier" in labels:
             idx = labels.index("flier")
@@ -292,8 +307,11 @@ def plot_pimo_curves_of_boxplot_stats(
         return handles, labels
 
     ax.legend(
-        *_sort_pimo_of_boxplot_legend(*ax.get_legend_handles_labels()), 
-        title="boxplot stats", loc="lower right", fontsize="small", title_fontsize="small"
+        *_sort_pimo_of_boxplot_legend(*ax.get_legend_handles_labels()),
+        title="boxplot stats",
+        loc="lower right",
+        fontsize="small",
+        title_fontsize="small",
     )
 
     ax.set_title("Per-Image Overlap Curves (only AUC boxplot statistics)")
@@ -333,7 +351,7 @@ PImOResult = namedtuple(
         "shared_fpr",
         "tprs",
         "image_classes",
-    ]
+    ],
 )
 PImOResult.__doc__ = """PImO result (from `PImO.compute()`).
 
@@ -346,6 +364,7 @@ PImOResult.__doc__ = """PImO result (from `PImO.compute()`).
 - `num_thresholds` is an attribute of `PImO` and is given in the constructor (from parent class).
 - `num_images` depends on the data seen by the model at the update() calls.
 """
+
 
 class PImO(PerImageBinClfCurve):
     """Per-Image Overlap (PIMO, pronounced pee-mo) curve.
@@ -433,10 +452,30 @@ class AUPImO(PImO):
     """Area Under the Per-Image Overlap (PImO) curve.
 
     AU is computed by the trapezoidal rule, each curve being treated separately.
-
-    TODO get lower bound from shared fpr and only compute the area under the curve in the considered region
-        --> (1) add class attribute, (2) add integration range at plot, (3) filter curves before intergration
     """
+
+    def __init__(
+        self,
+        num_thresholds: int = 10_000,
+        fpr_auc_ubound: float | Tensor = 1.0,
+        **kwargs,
+    ) -> None:
+        """Area Under the Per-Image Overlap (PImO) curve.
+
+        Args:
+            num_thresholds: number of thresholds to use for the binclf curves
+                            refer to `anomalib.utils.metrics.perimg.binclf_curve.PerImageBinClfCurve`
+            fpr_auc_ubound: upper bound of the FPR range to compute the AUC
+
+        """
+        super().__init__(num_thresholds=num_thresholds, **kwargs)
+
+        _validate_fpr_upper_bound(fpr_auc_ubound)
+        self.register_buffer("fpr_auc_ubound", torch.as_tensor(fpr_auc_ubound, dtype=torch.float64))
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(fpr_auc_ubound={self.fpr_auc_ubound})"
+
     def compute(self) -> tuple[PImOResult, Tensor]:  # type: ignore
         """Compute the Area Under the Per-Image Overlap curves (AUPImO).
 
@@ -456,11 +495,22 @@ class AUPImO(PImO):
 
         pimoresult = thresholds, fprs, shared_fpr, tprs, image_classes = super().compute()
 
-        # TODO find lower bound from shared fpr
+        # get the index of the value in `shared_fpr` that is closest to `self.fpr_auc_ubound in abs value
+        # knwon issue: `shared_fpr[ubound_idx]` might not be exactly `self.fpr_auc_ubound`
+        # but it's ok because `num_thresholds` should be large enough so that the error is negligible
+        ubound_idx = torch.argmin(torch.abs(shared_fpr - self.fpr_auc_ubound))
 
+        # limit the curves to the integration range [0, fpr_auc_ubound]
         # `shared_fpr` and `tprs` are in descending order; `flip()` reverts to ascending order
-        aucs: Tensor = torch.trapezoid(tprs.flip(dims=(1,)), x=shared_fpr.flip(dims=(0,)), dim=1)
-        return thresholds, shared_fpr, tprs, image_classes, aucs
+        tprs_auc: Tensor = tprs[:, ubound_idx:].flip(dims=(1,))
+        shared_fpr_auc: Tensor = shared_fpr[ubound_idx:].flip(dims=(0,))
+
+        aucs: Tensor = torch.trapezoid(tprs_auc, x=shared_fpr_auc, dim=1)
+
+        # normalize the size of `aucs` by dividing by the x-range size
+        aucs /= self.fpr_auc_ubound
+
+        return pimoresult, aucs
 
     def plot_pimo_curves(
         self,
@@ -500,16 +550,35 @@ class AUPImO(PImO):
             raise ValueError(f"Expected argument `show` to be one of 'all' or 'boxplot', but got {show}.")
 
         ax.set_xlabel("Mean FPR on Normal Images")
-        
+
         if self.fpr_auc_ubound < 1 and integration_range:
             current_legend = ax.get_legend()
             handles = [
-                ax.axvline(self.fpr_auc_ubound, label=f"FPR upper bound ({float(100 * self.fpr_auc_ubound):.2g}%)", linestyle="--", linewidth=1, color="black",),
-                ax.axvspan(0, self.fpr_auc_ubound, label="interval", color='cyan', alpha=0.2,),
+                ax.axvline(
+                    self.fpr_auc_ubound,
+                    label=f"upper bound ({float(100 * self.fpr_auc_ubound):.2g}%)",
+                    linestyle="--",
+                    linewidth=1,
+                    color="black",
+                ),
+                ax.axvspan(
+                    0,
+                    self.fpr_auc_ubound,
+                    label="interval",
+                    color="cyan",
+                    alpha=0.2,
+                ),
             ]
-            ax.legend(handles, [h.get_label() for h in handles], title="AUC", loc="center right", fontsize="small", title_fontsize="small")
+            ax.legend(
+                handles,
+                [h.get_label() for h in handles],
+                title="FPR AUC integration",
+                loc="center right",
+                fontsize="small",
+                title_fontsize="small",
+            )
             ax.add_artist(current_legend)
-    
+
         return fig, ax
 
     def boxplot_stats(self) -> list[dict[str, str | int | float | None]]:
@@ -576,5 +645,4 @@ class AULogPImO(PImO):
     """
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
         raise NotImplementedError("**coming up later**")
