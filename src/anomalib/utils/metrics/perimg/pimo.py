@@ -49,7 +49,7 @@ def _validate_kwargs_perimg(kwargs_perimg: list[dict[str, Any] | None], num_imag
             f"but got {len(kwargs_perimg)} dicts while {num_images} images."
         )
 
-    elif len(othertypes := {type(kws) for kws in kwargs_perimg if kws is not None and not isinstance(kws, dict)}) == 0:
+    elif len(othertypes := {type(kws) for kws in kwargs_perimg if kws is not None and not isinstance(kws, dict)}) > 0:
         raise ValueError(
             "Expected argument `kwargs_perimg` to be a list of dicts or Nones, "
             f"but found {sorted(othertypes, key=lambda t: t.__name__)} instead."
