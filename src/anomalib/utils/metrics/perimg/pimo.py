@@ -22,6 +22,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from matplotlib.axes import Axes
+from matplotlib.patches import Rectangle
 from matplotlib.pyplot import Figure
 from matplotlib.ticker import FixedLocator, LogFormatter, PercentFormatter
 from numpy import ndarray
@@ -266,13 +267,9 @@ def plot_fprs_vs_shared_fpr(
 
     XLIM_EPSILON = 0.01
     ax.set_xlim(0 - XLIM_EPSILON, 1 + XLIM_EPSILON)
-    ticks_major = np.linspace(0, 1, 6)
-    formatter_major = PercentFormatter(1, decimals=0)
-    ticks_minor = np.linspace(0, 1, 11)
-
-    ax.xaxis.set_major_locator(FixedLocator(ticks_major))
-    ax.xaxis.set_major_formatter(formatter_major)
-    ax.xaxis.set_minor_locator(FixedLocator(ticks_minor))
+    ax.xaxis.set_major_locator(FixedLocator(np.linspace(0, 1, 6)))
+    ax.xaxis.set_major_formatter(PercentFormatter(1, decimals=0))
+    ax.xaxis.set_minor_locator(FixedLocator(np.linspace(0, 1, 11)))
 
     ax.set_ylabel("In-Image FPR")
     YLIM_EPSILON = 0.01
@@ -666,6 +663,105 @@ class AUPImO(PImO):
         aucs /= self.fpr_auc_ubound
 
         return pimoresult, aucs
+
+    def plot_auc_boundary_conditions(
+        self,
+        axes: ndarray | None = None,
+    ) -> tuple[Figure | None, ndarray]:
+        """Plot the AUC boundary conditions based on FPR metrics on normal images."""
+
+        if axes is None:
+            fig, axes = plt.subplots(1, 2, figsize=(14, 6), width_ratios=[6, 8])
+            fig.suptitle("AUPImO Integration Boundary Conditions")
+            fig.set_tight_layout(True)
+        elif not isinstance(axes, ndarray):
+            raise ValueError(f"Expected argument `axes` to be an ndarray of matplotlib Axes, but got {type(axes)}.")
+        elif axes.size != 2:
+            raise ValueError(f"Expected argument `axes` to be of size 2, but got size {axes.size}.")
+        else:
+            fig, axes = (None, axes)
+
+        axes = axes.flatten()
+
+        (thresholds, fprs, shared_fpr, tprs, image_classes), aucs = self.compute()
+        fprs_norm = fprs[image_classes == 0]
+
+        # FRP upper bound is threshold lower bound
+        thidx_lbound = torch.argmin(torch.abs(shared_fpr - self.fpr_auc_ubound))
+        thbounds = (thresholds[thidx_lbound], thresholds[-1])
+
+        ax = axes[1]
+        ax.plot(thresholds, fprs_norm.T, alpha=0.3, color="gray", linewidth=0.5)
+        ax.plot(thresholds, shared_fpr, color="black", linewidth=2, linestyle="--", label="mean")
+        ax.axhline(
+            self.fpr_auc_ubound,
+            label=f"Shared FPR upper bound ({float(100 * self.fpr_auc_ubound):.2g}%)",
+            linestyle="--",
+            linewidth=1,
+            color="red",
+        )
+        ax.axvline(
+            thbounds[0],
+            label="Threshold lower bound (@ FPR upper bound)",
+            linestyle="--",
+            linewidth=1,
+            color="blue",
+        )
+        ax.add_patch(
+            Rectangle(
+                (thbounds[0], 0),
+                thbounds[1] - thbounds[0],
+                self.fpr_auc_ubound,
+                facecolor="cyan",
+                alpha=0.2,
+                label="Integration range",
+            )
+        )
+
+        ax.set_xlim(thresholds[0], thresholds[-1])
+        ax.set_xlabel("Thresholds")
+
+        YLIM_EPSILON = 0.01
+        ax.set_ylabel("False Positive Rate (FPR)")
+        YLIM_EPSILON = 0.01
+        ax.set_ylim(0 - YLIM_EPSILON, 1 + YLIM_EPSILON)
+        ax.yaxis.set_major_locator(FixedLocator(np.linspace(0, 1, 6)))
+        ax.yaxis.set_major_formatter(PercentFormatter(1, decimals=0))
+        ax.yaxis.set_minor_locator(FixedLocator(np.linspace(0, 1, 11)))
+
+        ax.set_title("Thresholds vs FPR on Normal Images")
+        ax.legend(loc="upper right", fontsize="small", title_fontsize="small")
+
+        ax = axes[0]
+        plot_fprs_vs_shared_fpr_predefviz(fprs, shared_fpr, image_classes, mode="norm-only", ax=ax)
+        current_legend = ax.get_legend()
+        handles = [
+            ax.axvline(
+                self.fpr_auc_ubound,
+                label=f"Shared FPR upper bound ({float(100 * self.fpr_auc_ubound):.2g}%)",
+                linestyle="--",
+                linewidth=1,
+                color="black",
+            ),
+            ax.axvspan(
+                0,
+                self.fpr_auc_ubound,
+                label="Integration range",
+                color="cyan",
+                alpha=0.2,
+            ),
+        ]
+        ax.legend(
+            handles,
+            [h.get_label() for h in handles],
+            title="FPR AUC integration",
+            loc="upper left",
+            fontsize="small",
+            title_fontsize="small",
+        )
+        ax.add_artist(current_legend)
+
+        return fig, axes
 
     def plot_pimo_curves(
         self,
