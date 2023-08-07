@@ -4,12 +4,6 @@ Two variants of AUCs are implemented:
     - AUPImO: Area Under the Per-Image Overlap (PIMO) curves.
               I.e. a metric of per-image average TPR.
 
-another branch
-TODO make it possible to define the threshold lower bound before computing the binclf curves
-design: find the lower bound here before calling the super().compute(),
-    then pass down the lower bound to the super().compute()
-so use this to get a binclf only in the considered th region (below the th lower bound is not visible)
-
 for shared fpr = mean( perimg fpr ) == set fpr
     find the th = fpr^-1( MAX_FPR ) with a binary search on the pixels of the norm images
     i.e. it's not necessary to compute the perimg fpr curves (tf. binclf curves) in advance
@@ -42,6 +36,25 @@ from .common import (
     _validate_perimg_rate_curves,
     _validate_rate_curve,
 )
+    
+
+def _validate_kwargs_perimg(kwargs_perimg: list[dict[str, Any] | None], num_images: int) -> None:
+    
+    if len(kwargs_perimg) == 0:
+        pass
+
+    elif len(kwargs_perimg) != num_images:
+        raise ValueError(
+            f"Expected argument `kwargs_perimg` to have the same number of dicts as number of images, "
+            f"but got {len(kwargs_perimg)} dicts while {num_images} images."
+        )
+
+    elif len(othertypes := {type(kws) for kws in kwargs_perimg if kws is not None and not isinstance(kws, dict)}) == 0:
+        raise ValueError(
+            "Expected argument `kwargs_perimg` to be a list of dicts or Nones, "
+            f"but found {sorted(othertypes, key=lambda t: t.__name__)} instead."
+        )
+
 
 # =========================================== PLOT ===========================================
 
@@ -109,21 +122,9 @@ def plot_pimo_curves(
     # there may be `nan`s but only in the normal images
     # in the curves of anomalous images, there should NOT be `nan`s
     _validate_perimg_rate_curves(tprs[image_classes == 1], nan_allowed=False)
+    
+    _validate_kwargs_perimg(kwargs_perimg, num_images=tprs.shape[0])
 
-    if len(kwargs_perimg) == 0:
-        pass
-
-    # `kwargs_perimg` must have `num_images` dicts
-    elif len(kwargs_perimg) != tprs.shape[0]:
-        raise ValueError(
-            f"Expected argument `kwargs_perimg` to have the same number of dicts as number of images in `tprs`, "
-            f"but got {len(kwargs_perimg)} dicts and {tprs.shape[0]} images, respectively."
-        )
-
-    elif not all(isinstance(kws, dict) or kws is None for kws in kwargs_perimg):
-        raise ValueError("Expected argument `kwargs_perimg` to be a list of dicts, but got other type(s).")
-
-    fig, ax = plt.subplots(figsize=(7, 6)) if ax is None else (None, ax)
     fig, ax = plt.subplots(figsize=(7, 6)) if ax is None else (None, ax)
 
     # override defaults with user-provided values
