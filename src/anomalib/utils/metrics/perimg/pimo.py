@@ -199,8 +199,6 @@ def plot_pimo_curves_of_boxplot_stats(
     ax: Axes | None = None,
     logfpr: bool = False,
     logfpr_epsilon: float = 1e-4,
-    # new
-    lax: Axes | None = None,
     # same
     **kwargs_shared,
 ) -> tuple[Figure | None, Axes]:
@@ -215,7 +213,6 @@ def plot_pimo_curves_of_boxplot_stats(
 
         aupimo_boxplot_stats: list of dicts, each dict is a boxplot stat of AUPImO values
                                 refer to `anomalib.utils.metrics.perimg.common._perimg_boxplot_stats()`
-        lax: matplotlib Axes for the legend; if None, it will be on the same ax
 
     Returns:
         fig, ax
@@ -225,6 +222,8 @@ def plot_pimo_curves_of_boxplot_stats(
         raise ValueError("Expected argument `aupimo_boxplot_stats` to have at least one dict, but got none.")
 
     imgidxs_toplot_fliers = {s["imgidx"] for s in aupimo_boxplot_stats if s["statistic"] in ("flierlo", "flierhi")}
+    # it is sorted so that only the first one has a label (others are plotted but don't show in the legend)
+    imgidxs_toplot_fliers = sorted(imgidxs_toplot_fliers)
     imgidxs_toplot_others = {s["imgidx"] for s in aupimo_boxplot_stats if s["statistic"] not in ("flierlo", "flierhi")}
 
     kwargs_perimg = []
@@ -233,8 +232,15 @@ def plot_pimo_curves_of_boxplot_stats(
     # they are validated in `plot_pimo_curves()` and only used for this:
     num_images = len(image_classes)
     for imgidx in range(num_images):
+        
         if imgidx in imgidxs_toplot_fliers:
-            kwargs_perimg.append(dict(linewidth=0.5, color="gray", alpha=0.8, linestyle="--", label="flier"))
+            kw = dict(linewidth=0.5, color="gray", alpha=0.8, linestyle="--")
+            # only one of them will show in the legend
+            if imgidx == imgidxs_toplot_fliers[0]:
+                kw["label"] = "flier"
+            else:
+                kw["label"] = None
+            kwargs_perimg.append(kw)
             continue
 
         if imgidx not in imgidxs_toplot_others:
@@ -243,10 +249,9 @@ def plot_pimo_curves_of_boxplot_stats(
             continue
 
         imgidx_stats = [s for s in aupimo_boxplot_stats if s["imgidx"] == imgidx]
-
-        # edge case where more than one stat falls on the same image
         stat_dict = imgidx_stats[0]
 
+        # edge case where more than one stat falls on the same image
         if len(imgidx_stats) > 1:
             stat_dict["statistic"] = " & ".join(s["statistic"] for s in imgidx_stats)  # type: ignore
 
@@ -264,19 +269,31 @@ def plot_pimo_curves_of_boxplot_stats(
         logfpr_epsilon=logfpr_epsilon,
         **kwargs_shared,
     )
+    
+    def _sort_pimo_of_boxplot_legend(handles: list, labels: list[str]):
+        """sort the legend by label and put 'flier' at the bottom
+        not essential but it makes the legend 'more deterministic' and organized
+        """
+        
+        # [(handle0, label0), (handle1, label1),...]
+        handles_labels = list(zip(handles, labels))  
+        handles_labels = sorted(handles_labels, key=lambda tup: tup[1])
 
-    # legend
-    hs_lbls = list(zip(*ax.get_legend_handles_labels()))
-    # keep a single flier handle in the legend (if any)
-    hs_lbls_fliers = tuple((h, lbl) for h, lbl in hs_lbls if lbl == "flier")
-    hs_lbls_others = tuple((h, lbl) for h, lbl in hs_lbls if lbl != "flier")
-    hs_lbls = hs_lbls_others + hs_lbls_fliers[:1]  # type: ignore
-    hs_lbls = tuple(zip(*hs_lbls))  # type: ignore
+        # ([handle0, handle1, ...], [label0, label1, ...])
+        handles, labels = tuple(map(list, zip(*handles_labels)))  # type: ignore  
+        
+        # put flier at the last position
+        if "flier" in labels:
+            idx = labels.index("flier")
+            handles.append(handles.pop(idx))
+            labels.append(labels.pop(idx))
 
-    if lax is None:
-        ax.legend(*hs_lbls, title="boxplot stats", loc="lower right", fontsize="small", title_fontsize="small")
-    else:
-        lax.legend(*hs_lbls, title="boxplot stats", loc="center")
+        return handles, labels
+
+    ax.legend(
+        *_sort_pimo_of_boxplot_legend(*ax.get_legend_handles_labels()), 
+        title="boxplot stats", loc="lower right", fontsize="small", title_fontsize="small"
+    )
 
     ax.set_title("Per-Image Overlap Curves (only AUC boxplot statistics)")
 
@@ -439,6 +456,7 @@ class AUPImO(PImO):
         self,
         logfpr: bool = False,
         show: str = "boxplot",
+        integration_range: bool = True,
         ax: Axes | None = None,
     ) -> tuple[Figure | None, Axes] | tuple[None, None]:
         """Plot shared FPR vs Per-Image Overlap (PImO) curves."""
@@ -472,6 +490,16 @@ class AUPImO(PImO):
             raise ValueError(f"Expected argument `show` to be one of 'all' or 'boxplot', but got {show}.")
 
         ax.set_xlabel("Mean FPR on Normal Images")
+        
+        if self.fpr_auc_ubound < 1 and integration_range:
+            current_legend = ax.get_legend()
+            handles = [
+                ax.axvline(self.fpr_auc_ubound, label=f"FPR upper bound ({float(100 * self.fpr_auc_ubound):.2g}%)", linestyle="--", linewidth=1, color="black",),
+                ax.axvspan(0, self.fpr_auc_ubound, label="interval", color='cyan', alpha=0.2,),
+            ]
+            ax.legend(handles, [h.get_label() for h in handles], title="AUC", loc="center right", fontsize="small", title_fontsize="small")
+            ax.add_artist(current_legend)
+    
         return fig, ax
 
     def boxplot_stats(self) -> list[dict[str, str | int | float | None]]:
