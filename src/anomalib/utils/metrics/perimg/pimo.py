@@ -829,7 +829,8 @@ class AUPImO(PImO):
                 fontsize="small",
                 title_fontsize="small",
             )
-            ax.add_artist(current_legend)
+            if current_legend is not None:
+                ax.add_artist(current_legend)
 
         return fig, ax
 
