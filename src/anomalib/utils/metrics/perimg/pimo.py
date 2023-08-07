@@ -15,6 +15,7 @@ further: also choose the th upper bound to be the max score at normal pixels
 
 from __future__ import annotations
 
+from collections import namedtuple
 from typing import Any
 
 import matplotlib.pyplot as plt
@@ -324,6 +325,27 @@ def _plot_aupimo_boxplot(aucs: Tensor, image_classes: Tensor, ax: Axes | None = 
 
 # =========================================== METRICS ===========================================
 
+PImOResult = namedtuple(
+    "PImOResult",
+    [
+        "thresholds",
+        "fprs",
+        "shared_fpr",
+        "tprs",
+        "image_classes",
+    ]
+)
+PImOResult.__doc__ = """PImO result (from `PImO.compute()`).
+
+[0] thresholds: shape (num_thresholds,), a `float` dtype as given in update()
+[1] fprs: shape (num_images, num_thresholds), dtype `float64`, \in [0, 1]
+[2] shared_fpr: shape (num_thresholds,), dtype `float64`, \in [0, 1]
+[3] tprs: shape (num_images, num_thresholds), dtype `float64`, \in [0, 1] for anom images, `nan` for norm images
+[4] image_classes: shape (num_images,), dtype `int32`, \in {0, 1}
+
+- `num_thresholds` is an attribute of `PImO` and is given in the constructor (from parent class).
+- `num_images` depends on the data seen by the model at the update() calls.
+"""
 
 class PImO(PerImageBinClfCurve):
     """Per-Image Overlap (PIMO, pronounced pee-mo) curve.
@@ -348,26 +370,19 @@ class PImO(PerImageBinClfCurve):
     TPR: True Positive Rate
     """
 
-    def compute(self) -> tuple[Tensor, Tensor, Tensor, Tensor]:  # type: ignore
+    def compute(self) -> PImOResult:  # type: ignore
         """Compute the PImO curve.
 
-
-        Returns: (thresholds, shared_fpr, tprs, image_classes)
-            [0] thresholds: shape (num_thresholds,), dtype as given in update()
-            [1] shared_fpr: shape (num_thresholds,), dtype float64, \in [0, 1]
-            [2] tprs: shape (num_images, num_thresholds), dtype float64,
-                        \in [0, 1] for anomalous images, `nan` for normal images
-            [3] image_classes: shape (num_images,), dtype int32, \in {0, 1}
-
-                `num_thresholds` is an attribute of the parent class.
-                `num_images` depends on the data seen by the model at the update() calls.
+        Returns: PImOResult
+        See `anomalib.utils.metrics.perimg.pimo.PImOResult` for details.
         """
         if self.is_empty:
-            return (
+            return PImOResult(
                 torch.empty(0, dtype=torch.float32),
                 torch.empty(0, dtype=torch.float64),
                 torch.empty(0, dtype=torch.float64),
-                torch.empty(0, dtype=torch.int64),
+                torch.empty(0, dtype=torch.float64),
+                torch.empty(0, dtype=torch.int32),
             )
 
         thresholds, binclf_curves, image_classes = super().compute()
@@ -384,7 +399,7 @@ class PImO(PerImageBinClfCurve):
         # see note about shared FPR alternatives in the class's docstring
         shared_fpr = fprs[image_classes == 0].mean(dim=0)  # shape: (num_thresholds,)
 
-        return thresholds, shared_fpr, tprs, image_classes
+        return PImOResult(thresholds, fprs, shared_fpr, tprs, image_classes)
 
     def plot(
         self,
@@ -402,7 +417,7 @@ class PImO(PerImageBinClfCurve):
         if self.is_empty:
             raise RuntimeError("No data to plot.")
 
-        _, shared_fpr, tprs, image_classes = self.compute()
+        _, __, shared_fpr, tprs, image_classes = self.compute()
         fig, ax = plot_pimo_curves(
             shared_fpr=shared_fpr,
             tprs=tprs,
@@ -422,29 +437,24 @@ class AUPImO(PImO):
     TODO get lower bound from shared fpr and only compute the area under the curve in the considered region
         --> (1) add class attribute, (2) add integration range at plot, (3) filter curves before intergration
     """
-
-    def compute(self) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:  # type: ignore
+    def compute(self) -> tuple[PImOResult, Tensor]:  # type: ignore
         """Compute the Area Under the Per-Image Overlap curves (AUPImO).
 
-        Returns: (thresholds, shared_fpr, tprs, image_classes, aucs)
-            [0] thresholds: shape (num_thresholds,), dtype as given in update()
-            [1] shared_fpr: shape (num_thresholds,), dtype float64, \in [0, 1]
-            [2] tprs: shape (num_images, num_thresholds), dtype float64,
-                        \in [0, 1] for anomalous images, `nan` for normal images
-            [3] image_classes: shape (num_images,), dtype int32, \in {0, 1}
-            [4] aucs: shape (num_images,), dtype float64, \in [0, 1]
+        Returns: (PImOResult, aucs)
+            [0] PImOResult: PImOResult, see `anomalib.utils.metrics.perimg.pimo.PImOResult` for details.
+            [1] aucs: shape (num_images,), dtype `float64`, \in [0, 1]
         """
 
         if self.is_empty:
-            return (
+            return PImOResult(
                 torch.empty(0, dtype=torch.float32),
                 torch.empty(0, dtype=torch.float64),
                 torch.empty(0, dtype=torch.float64),
-                torch.empty(0, dtype=torch.int64),
                 torch.empty(0, dtype=torch.float64),
-            )
+                torch.empty(0, dtype=torch.int32),
+            ), torch.empty(0, dtype=torch.float64)
 
-        thresholds, shared_fpr, tprs, image_classes = super().compute()
+        pimoresult = thresholds, fprs, shared_fpr, tprs, image_classes = super().compute()
 
         # TODO find lower bound from shared fpr
 
@@ -463,7 +473,7 @@ class AUPImO(PImO):
         if self.is_empty:
             return None, None
 
-        thresholds, shared_fpr, tprs, image_classes, aucs = self.compute()
+        (thresholds, fprs, shared_fpr, tprs, image_classes), aucs = self.compute()
 
         if show == "all":
             fig, ax = plot_pimo_curves(
@@ -509,8 +519,7 @@ class AUPImO(PImO):
             list[dict[str, str | int | float | None]]: List of AUCs statistics from a boxplot.
             refer to `anomalib.utils.metrics.perimg.common._perimg_boxplot_stats()` for the keys and values.
         """
-        _, __, ___, image_classes, aucs = self.compute()
-
+        (_, __, ___, ____, image_classes), aucs = self.compute()
         stats = _perimg_boxplot_stats(values=aucs, image_classes=image_classes, only_class=1)
         return stats
 
@@ -519,7 +528,7 @@ class AUPImO(PImO):
         ax: Axes | None = None,
     ) -> tuple[Figure | None, Axes]:
         """Plot boxplot of AUPImO values."""
-        thresholds, shared_fpr, tprs, image_classes, aucs = self.compute()
+        (thresholds, fprs, shared_fpr, tprs, image_classes), aucs = self.compute()
         fig, ax = _plot_aupimo_boxplot(
             aucs=aucs,
             image_classes=image_classes,
