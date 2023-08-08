@@ -42,7 +42,7 @@ from .common import (
 # =========================================== VALIDATIONS ===========================================
 
 
-def _validate_fpr_level(fpr: float | Tensor) -> None:
+def _validate_nonzero_fpr_level(fpr: float | Tensor) -> None:
     if isinstance(fpr, float):
         fpr = torch.as_tensor(fpr)
 
@@ -168,7 +168,7 @@ def plot_pimo_curves(
     ax.set_xlabel("Shared FPR")
 
     if logfpr:
-        _validate_fpr_level(logfpr_epsilon)
+        _validate_nonzero_fpr_level(logfpr_epsilon)
         ax.set_xscale("log")
         ax.set_xlim(logfpr_epsilon, 1)
         eps_round_exponent = int(np.floor(np.log10(logfpr_epsilon)))
@@ -604,7 +604,7 @@ class AUPImO(PImO):
     def __init__(
         self,
         num_thresholds: int = 10_000,
-        fpr_auc_ubound: float | Tensor = 1.0,
+        ubound: float | Tensor = 1.0,
         **kwargs,
     ) -> None:
         """Area Under the Per-Image Overlap (PImO) curve.
@@ -612,16 +612,16 @@ class AUPImO(PImO):
         Args:
             num_thresholds: number of thresholds to use for the binclf curves
                             refer to `anomalib.utils.metrics.perimg.binclf_curve.PerImageBinClfCurve`
-            fpr_auc_ubound: upper bound of the FPR range to compute the AUC
+            ubound: upper bound of the FPR range to compute the AUC
 
         """
         super().__init__(num_thresholds=num_thresholds, **kwargs)
 
-        _validate_fpr_level(fpr_auc_ubound)
-        self.register_buffer("fpr_auc_ubound", torch.as_tensor(fpr_auc_ubound, dtype=torch.float64))
+        _validate_nonzero_fpr_level(ubound)
+        self.register_buffer("ubound", torch.as_tensor(ubound, dtype=torch.float64))
 
     def __repr__(self) -> str:
-        return f"{self.__class__.__name__}(fpr_auc_ubound={self.fpr_auc_ubound})"
+        return f"{self.__class__.__name__}(ubound={self.ubound})"
 
     def compute(self) -> tuple[PImOResult, Tensor]:  # type: ignore
         """Compute the Area Under the Per-Image Overlap curves (AUPImO).
@@ -642,12 +642,12 @@ class AUPImO(PImO):
 
         pimoresult = thresholds, fprs, shared_fpr, tprs, image_classes = super().compute()
 
-        # get the index of the value in `shared_fpr` that is closest to `self.fpr_auc_ubound in abs value
-        # knwon issue: `shared_fpr[ubound_idx]` might not be exactly `self.fpr_auc_ubound`
+        # get the index of the value in `shared_fpr` that is closest to `self.ubound in abs value
+        # knwon issue: `shared_fpr[ubound_idx]` might not be exactly `self.ubound`
         # but it's ok because `num_thresholds` should be large enough so that the error is negligible
-        ubound_idx = torch.argmin(torch.abs(shared_fpr - self.fpr_auc_ubound))
+        ubound_idx = torch.argmin(torch.abs(shared_fpr - self.ubound))
 
-        # limit the curves to the integration range [0, fpr_auc_ubound]
+        # limit the curves to the integration range [0, ubound]
         # `shared_fpr` and `tprs` are in descending order; `flip()` reverts to ascending order
         tprs_auc: Tensor = tprs[:, ubound_idx:].flip(dims=(1,))
         shared_fpr_auc: Tensor = shared_fpr[ubound_idx:].flip(dims=(0,))
@@ -656,7 +656,7 @@ class AUPImO(PImO):
 
         # normalize the size of `aucs` by dividing by the x-range size
         # clip(0, 1) makes sure that the values are in [0, 1] (in case of numerical errors)
-        aucs = (aucs / self.fpr_auc_ubound).clip(0, 1)
+        aucs = (aucs / self.ubound).clip(0, 1)
 
         return pimoresult, aucs
 
@@ -683,15 +683,15 @@ class AUPImO(PImO):
         fprs_norm = fprs[image_classes == 0]
 
         # FRP upper bound is threshold lower bound
-        thidx_lbound = torch.argmin(torch.abs(shared_fpr - self.fpr_auc_ubound))
+        thidx_lbound = torch.argmin(torch.abs(shared_fpr - self.ubound))
         thbounds = (thresholds[thidx_lbound], thresholds[-1])
 
         ax = axes[1]
         ax.plot(thresholds, fprs_norm.T, alpha=0.3, color="gray", linewidth=0.5)
         ax.plot(thresholds, shared_fpr, color="black", linewidth=2, linestyle="--", label="mean")
         ax.axhline(
-            self.fpr_auc_ubound,
-            label=f"Shared FPR upper bound ({float(100 * self.fpr_auc_ubound):.2g}%)",
+            self.ubound,
+            label=f"Shared FPR upper bound ({float(100 * self.ubound):.2g}%)",
             linestyle="--",
             linewidth=1,
             color="red",
@@ -707,7 +707,7 @@ class AUPImO(PImO):
             Rectangle(
                 (thbounds[0], 0),
                 thbounds[1] - thbounds[0],
-                self.fpr_auc_ubound,
+                self.ubound,
                 facecolor="cyan",
                 alpha=0.2,
                 label="Integration range",
@@ -733,15 +733,15 @@ class AUPImO(PImO):
         current_legend = ax.get_legend()
         handles = [
             ax.axvline(
-                self.fpr_auc_ubound,
-                label=f"Shared FPR upper bound ({float(100 * self.fpr_auc_ubound):.2g}%)",
+                self.ubound,
+                label=f"Shared FPR upper bound ({float(100 * self.ubound):.2g}%)",
                 linestyle="--",
                 linewidth=1,
                 color="black",
             ),
             ax.axvspan(
                 0,
-                self.fpr_auc_ubound,
+                self.ubound,
                 label="Integration range",
                 color="cyan",
                 alpha=0.2,
@@ -798,19 +798,19 @@ class AUPImO(PImO):
 
         ax.set_xlabel("Mean FPR on Normal Images")
 
-        if self.fpr_auc_ubound < 1 and integration_range:
+        if self.ubound < 1 and integration_range:
             current_legend = ax.get_legend()
             handles = [
                 ax.axvline(
-                    self.fpr_auc_ubound,
-                    label=f"upper bound ({float(100 * self.fpr_auc_ubound):.2g}%)",
+                    self.ubound,
+                    label=f"upper bound ({float(100 * self.ubound):.2g}%)",
                     linestyle="--",
                     linewidth=1,
                     color="black",
                 ),
                 ax.axvspan(
                     0,
-                    self.fpr_auc_ubound,
+                    self.ubound,
                     label="interval",
                     color="cyan",
                     alpha=0.2,
