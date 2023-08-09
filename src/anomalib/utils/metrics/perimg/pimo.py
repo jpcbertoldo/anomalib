@@ -4,12 +4,6 @@ Two variants of AUCs are implemented:
     - AUPImO: Area Under the Per-Image Overlap (PIMO) curves.
               I.e. a metric of per-image average TPR.
 
-another branch
-TODO make it possible to define the threshold lower bound before computing the binclf curves
-design: find the lower bound here before calling the super().compute(),
-    then pass down the lower bound to the super().compute()
-so use this to get a binclf only in the considered th region (below the th lower bound is not visible)
-
 for shared fpr = mean( perimg fpr ) == set fpr
     find the th = fpr^-1( MAX_FPR ) with a binary search on the pixels of the norm images
     i.e. it's not necessary to compute the perimg fpr curves (tf. binclf curves) in advance
@@ -21,290 +15,50 @@ further: also choose the th upper bound to be the max score at normal pixels
 
 from __future__ import annotations
 
-from typing import Any
+from collections import namedtuple
 
 import matplotlib.pyplot as plt
-import numpy as np
 import torch
 from matplotlib.axes import Axes
 from matplotlib.pyplot import Figure
-from matplotlib.ticker import FixedLocator, LogFormatter, PercentFormatter
 from numpy import ndarray
 from torch import Tensor
 
-from .binclf_curve import PerImageBinClfCurve, _validate_atleast_one_anomalous_image, _validate_atleast_one_normal_image
+from .binclf_curve import PerImageBinClfCurve
 from .common import (
-    _bounded_lims,
     _perimg_boxplot_stats,
-    _plot_perimg_metric_boxplot,
-    _validate_aucs,
-    _validate_image_classes,
-    _validate_perimg_rate_curves,
-    _validate_rate_curve,
+    _validate_atleast_one_anomalous_image,
+    _validate_atleast_one_normal_image,
+)
+from .plot import (
+    plot_all_pimo_curves,
+    plot_aupimo_boxplot,
+    plot_boxplot_pimo_curves,
 )
 
-# =========================================== PLOT ===========================================
-
-
-def plot_pimo_curves(
-    shared_fpr: Tensor,
-    tprs: Tensor,
-    image_classes: Tensor,
-    *kwargs_perimg: dict[str, Any] | None,
-    # ---
-    ax: Axes | None = None,
-    logfpr: bool = False,
-    logfpr_epsilon: float = 1e-4,
-    **kwargs_shared,
-) -> tuple[Figure | None, Axes]:
-    """Plot shared FPR vs Per-Image Overlap (PImO) curves.
-
-    The `image_classes` tensor is used to filter out the normal images, while making it possible to
-        keep the indices of the anomalous images.
-
-    Args:
-        shared_fpr: shape (num_thresholds,)
-        tprs: shape (num_images, num_thresholds)
-        image_classes: shape (num_images,)
-        ax: matplotlib Axes
-        logfpr: whether to use log scale for the FPR axis
-        logfpr_epsilon: small positive number to avoid `log(0)`; used only if `logfpr` is True
-
-        *kwargs_perimg: keyword arguments passed to `ax.plot()` and SPECIFIC to each curve
-                            if provided it should be a list of dicts of length `num_images`.
-                            If None, that curve will not be ploted.
-
-                            if provided it should be a list of dicts of length `num_images`.
-                            If None, that curve will not be ploted.
-
-        **kwargs: keyword arguments passed to `ax.plot()` and SHARED by all curves
-
-        If both `kwargs_perimg` and `kwargs_shared` have the same key, the value in `kwargs_perimg` will be used.
-
-    Returns:
-        fig, ax
-    """
-
-    _validate_perimg_rate_curves(tprs, nan_allowed=True)  # normal images have `nan`s
-    _validate_rate_curve(shared_fpr)
-    _validate_image_classes(image_classes)
-
-    # `shared_fpr` and `tprs` have the same number of thresholds
-    if tprs.shape[1] != shared_fpr.shape[0]:
-        raise ValueError(
-            f"Expected argument `tprs` to have the same number of thresholds as argument `shared_fpr`, "
-            f"but got {tprs.shape[1]} thresholds and {shared_fpr.shape[0]} thresholds, respectively."
-        )
-
-    # `tprs` and `image_classes` have the same number of images
-    if image_classes is not None:
-        if tprs.shape[0] != image_classes.shape[0]:
-            raise ValueError(
-                f"Expected argument `tprs` to have the same number of images as argument `image_classes`, "
-                f"but got {tprs.shape[0]} images and {image_classes.shape[0]} images, respectively."
-            )
-
-    # specific to TPR curves
-    _validate_atleast_one_anomalous_image(image_classes)
-    # there may be `nan`s but only in the normal images
-    # in the curves of anomalous images, there should NOT be `nan`s
-    _validate_perimg_rate_curves(tprs[image_classes == 1], nan_allowed=False)
-
-    if len(kwargs_perimg) == 0:
-        pass
-
-    # `kwargs_perimg` must have `num_images` dicts
-    elif len(kwargs_perimg) != tprs.shape[0]:
-        raise ValueError(
-            f"Expected argument `kwargs_perimg` to have the same number of dicts as number of images in `tprs`, "
-            f"but got {len(kwargs_perimg)} dicts and {tprs.shape[0]} images, respectively."
-        )
-
-    elif not all(isinstance(kws, dict) or kws is None for kws in kwargs_perimg):
-        raise ValueError("Expected argument `kwargs_perimg` to be a list of dicts, but got other type(s).")
-
-    fig, ax = plt.subplots(figsize=(7, 6)) if ax is None else (None, ax)
-    fig, ax = plt.subplots(figsize=(7, 6)) if ax is None else (None, ax)
-
-    # override defaults with user-provided values
-    kwargs_shared = {
-        **dict(linewidth=1, linestyle="-", alpha=0.3),
-        **kwargs_shared,
-    }
-
-    for imgidx, (curve, img_cls) in enumerate(zip(tprs, image_classes)):
-        if img_cls == 0:  # normal image
-            continue
-
-        # default label and shared kwargs
-        kw = {**dict(label=f"idx={imgidx:03}"), **kwargs_shared}  # override sequence (left to right)
-
-        if len(kwargs_perimg) == 0:
-            pass
-        elif kwargs_perimg[imgidx] is None:
-            continue
-        else:
-            # override with image-specific kwargs
-            kw_img: dict[str, Any] = kwargs_perimg[imgidx]  # type: ignore
-            kw = {**kw, **kw_img}  # type: ignore
-        ax.plot(shared_fpr, curve, **kw)
-    ax.set_xlabel("Shared FPR")
-
-    if logfpr:
-        if logfpr_epsilon <= 0:
-            raise ValueError(f"Expected argument `logfpr_epsilon` to be positive, but got {logfpr_epsilon}.")
-
-        if logfpr_epsilon >= 1:
-            raise ValueError(f"Expected argument `logfpr_epsilon` to be less than 1, but got {logfpr_epsilon}.")
-
-        ax.set_xscale("log")
-        ax.set_xlim(logfpr_epsilon, 1)
-        eps_round_exponent = int(np.floor(np.log10(logfpr_epsilon)))
-        ticks_major = np.logspace(eps_round_exponent, 0, abs(eps_round_exponent) + 1)
-        formatter_major = LogFormatter()
-        ticks_minor = np.logspace(eps_round_exponent, 0, 2 * abs(eps_round_exponent) + 1)
-
-    else:
-        XLIM_EPSILON = 0.01
-        ax.set_xlim(0 - XLIM_EPSILON, 1 + XLIM_EPSILON)
-        ticks_major = np.linspace(0, 1, 6)
-        formatter_major = PercentFormatter(1, decimals=0)
-        ticks_minor = np.linspace(0, 1, 11)
-
-    ax.xaxis.set_major_locator(FixedLocator(ticks_major))
-    ax.xaxis.set_major_formatter(formatter_major)
-    ax.xaxis.set_minor_locator(FixedLocator(ticks_minor))
-
-    ax.set_ylabel("Per-Image Overlap (in-image TPR)")
-    YLIM_EPSILON = 0.01
-    ax.set_ylim(0 - YLIM_EPSILON, 1 + YLIM_EPSILON)
-    ax.yaxis.set_major_locator(FixedLocator(np.linspace(0, 1, 6)))
-    ax.yaxis.set_major_formatter(PercentFormatter(1, decimals=0))
-    ax.yaxis.set_minor_locator(FixedLocator(np.linspace(0, 1, 11)))
-
-    ax.set_title("Per-Image Overlap Curves")
-
-    return fig, ax
-
-
-def plot_pimo_curves_of_boxplot_stats(
-    # same as `plot_pimo_curves()`
-    shared_fpr,
-    tprs,
-    image_classes,
-    # new
-    aupimo_boxplot_stats: list[dict[str, str | int | float | None]],
-    # same
-    ax: Axes | None = None,
-    logfpr: bool = False,
-    logfpr_epsilon: float = 1e-4,
-    # new
-    lax: Axes | None = None,
-    # same
-    **kwargs_shared,
-) -> tuple[Figure | None, Axes]:
-    """Plot shared FPR vs Per-Image Overlap (PImO) curves only for the boxplot stats cases.
-
-    Args:
-        arguments not mentioned here are as in `plot_pimo_curves()`
-        Refer to `anomalib.utils.metrics.perimg.pimo.plot_pimo_curves()`
-
-        This one does not have the argument `kwargs_perimg` because it's used to plot the curves of individual
-            images only with their corresponding statistic and hide the other curves.
-
-        aupimo_boxplot_stats: list of dicts, each dict is a boxplot stat of AUPImO values
-                                refer to `anomalib.utils.metrics.perimg.common._perimg_boxplot_stats()`
-        lax: matplotlib Axes for the legend; if None, it will be on the same ax
-
-    Returns:
-        fig, ax
-    """
-
-    if len(aupimo_boxplot_stats) == 0:
-        raise ValueError("Expected argument `aupimo_boxplot_stats` to have at least one dict, but got none.")
-
-    imgidxs_toplot_fliers = {s["imgidx"] for s in aupimo_boxplot_stats if s["statistic"] in ("flierlo", "flierhi")}
-    imgidxs_toplot_others = {s["imgidx"] for s in aupimo_boxplot_stats if s["statistic"] not in ("flierlo", "flierhi")}
-
-    kwargs_perimg = []
-
-    # it's not necessary to validate (shared_fpr, tprs, image_classes) because
-    # they are validated in `plot_pimo_curves()` and only used for this:
-    num_images = len(image_classes)
-    for imgidx in range(num_images):
-        if imgidx in imgidxs_toplot_fliers:
-            kwargs_perimg.append(dict(linewidth=0.5, color="gray", alpha=0.8, linestyle="--", label="flier"))
-            continue
-
-        if imgidx not in imgidxs_toplot_others:
-            # don't plot this curve
-            kwargs_perimg.append(None)  # type: ignore
-            continue
-
-        imgidx_stats = [s for s in aupimo_boxplot_stats if s["imgidx"] == imgidx]
-
-        # edge case where more than one stat falls on the same image
-        stat_dict = imgidx_stats[0]
-
-        if len(imgidx_stats) > 1:
-            stat_dict["statistic"] = " & ".join(s["statistic"] for s in imgidx_stats)  # type: ignore
-
-        stat, nearest = stat_dict["statistic"], stat_dict["nearest"]
-        kwargs_perimg.append(dict(linewidth=1, alpha=1, label=f"{stat} (AUPImO={nearest:.1%}) (imgidx={imgidx})"))
-
-    fig, ax = plot_pimo_curves(
-        shared_fpr,
-        tprs,
-        image_classes,
-        *kwargs_perimg,
-        # ---
-        ax=ax,
-        logfpr=logfpr,
-        logfpr_epsilon=logfpr_epsilon,
-        **kwargs_shared,
-    )
-
-    # legend
-    hs_lbls = list(zip(*ax.get_legend_handles_labels()))
-    # keep a single flier handle in the legend (if any)
-    hs_lbls_fliers = tuple((h, lbl) for h, lbl in hs_lbls if lbl == "flier")
-    hs_lbls_others = tuple((h, lbl) for h, lbl in hs_lbls if lbl != "flier")
-    hs_lbls = hs_lbls_others + hs_lbls_fliers[:1]  # type: ignore
-    hs_lbls = tuple(zip(*hs_lbls))  # type: ignore
-
-    if lax is None:
-        ax.legend(*hs_lbls, title="boxplot stats", loc="lower right", fontsize="small", title_fontsize="small")
-    else:
-        lax.legend(*hs_lbls, title="boxplot stats", loc="center")
-
-    ax.set_title("Per-Image Overlap Curves (only AUC boxplot statistics)")
-
-    return fig, ax
-
-
-def _plot_aupimo_boxplot(aucs: Tensor, image_classes: Tensor, ax: Axes | None = None) -> tuple[Figure | None, Axes]:
-    _validate_aucs(aucs, nan_allowed=True)
-    _validate_atleast_one_anomalous_image(image_classes)
-
-    fig, ax = _plot_perimg_metric_boxplot(
-        values=aucs,
-        image_classes=image_classes,
-        only_class=1,
-        ax=ax,
-    )
-
-    # don't go beyond the [0, 1] -+ \epsilon range in the X-axis
-    XLIM_EPSILON = 0.01
-    _bounded_lims(ax, axis=0, bounds=(0 - XLIM_EPSILON, 1 + XLIM_EPSILON))
-    ax.xaxis.set_major_formatter(PercentFormatter(1))
-
-    ax.set_xlabel("AUPImO [%]")
-    ax.set_title("Area Under the Per-Image Overlap (AUPImO) Boxplot")
-
-    return fig, ax
-
-
 # =========================================== METRICS ===========================================
+
+PImOResult = namedtuple(
+    "PImOResult",
+    [
+        "thresholds",
+        "fprs",
+        "shared_fpr",
+        "tprs",
+        "image_classes",
+    ],
+)
+PImOResult.__doc__ = """PImO result (from `PImO.compute()`).
+
+[0] thresholds: shape (num_thresholds,), a `float` dtype as given in update()
+[1] fprs: shape (num_images, num_thresholds), dtype `float64`, \in [0, 1]
+[2] shared_fpr: shape (num_thresholds,), dtype `float64`, \in [0, 1]
+[3] tprs: shape (num_images, num_thresholds), dtype `float64`, \in [0, 1] for anom images, `nan` for norm images
+[4] image_classes: shape (num_images,), dtype `int32`, \in {0, 1}
+
+- `num_thresholds` is an attribute of `PImO` and is given in the constructor (from parent class).
+- `num_images` depends on the data seen by the model at the update() calls.
+"""
 
 
 class PImO(PerImageBinClfCurve):
@@ -330,26 +84,19 @@ class PImO(PerImageBinClfCurve):
     TPR: True Positive Rate
     """
 
-    def compute(self) -> tuple[Tensor, Tensor, Tensor, Tensor]:  # type: ignore
+    def compute(self) -> PImOResult:  # type: ignore
         """Compute the PImO curve.
 
-
-        Returns: (thresholds, shared_fpr, tprs, image_classes)
-            [0] thresholds: shape (num_thresholds,), dtype as given in update()
-            [1] shared_fpr: shape (num_thresholds,), dtype float64, \in [0, 1]
-            [2] tprs: shape (num_images, num_thresholds), dtype float64,
-                        \in [0, 1] for anomalous images, `nan` for normal images
-            [3] image_classes: shape (num_images,), dtype int32, \in {0, 1}
-
-                `num_thresholds` is an attribute of the parent class.
-                `num_images` depends on the data seen by the model at the update() calls.
+        Returns: PImOResult
+        See `anomalib.utils.metrics.perimg.pimo.PImOResult` for details.
         """
         if self.is_empty:
-            return (
+            return PImOResult(
                 torch.empty(0, dtype=torch.float32),
                 torch.empty(0, dtype=torch.float64),
                 torch.empty(0, dtype=torch.float64),
-                torch.empty(0, dtype=torch.int64),
+                torch.empty(0, dtype=torch.float64),
+                torch.empty(0, dtype=torch.int32),
             )
 
         thresholds, binclf_curves, image_classes = super().compute()
@@ -366,33 +113,27 @@ class PImO(PerImageBinClfCurve):
         # see note about shared FPR alternatives in the class's docstring
         shared_fpr = fprs[image_classes == 0].mean(dim=0)  # shape: (num_thresholds,)
 
-        return thresholds, shared_fpr, tprs, image_classes
+        return PImOResult(thresholds, fprs, shared_fpr, tprs, image_classes)
 
     def plot(
         self,
-        logfpr: bool = False,
         ax: Axes | None = None,
     ) -> tuple[Figure | None, Axes]:
-        """Plot shared FPR vs Per-Image Overlap (PImO) curves.
+        """Plot shared FPR vs Per-Image Overlap (PImO) curves."""
 
-        Args:
-            logfpr: whether to use log scale for the FPR axis (X-axis)
-
-        Returns:
-            fig, ax
-        """
         if self.is_empty:
-            raise RuntimeError("No data to plot.")
+            return None, None
 
-        _, shared_fpr, tprs, image_classes = self.compute()
-        fig, ax = plot_pimo_curves(
-            shared_fpr=shared_fpr,
-            tprs=tprs,
-            image_classes=image_classes,
+        _, __, shared_fpr, tprs, image_classes = self.compute()
+
+        fig, ax = plot_all_pimo_curves(
+            shared_fpr,
+            tprs,
+            image_classes,
             ax=ax,
-            logfpr=logfpr,
         )
         ax.set_xlabel("Mean FPR on Normal Images")
+
         return fig, ax
 
 
@@ -400,77 +141,56 @@ class AUPImO(PImO):
     """Area Under the Per-Image Overlap (PImO) curve.
 
     AU is computed by the trapezoidal rule, each curve being treated separately.
-
-    TODO get lower bound from shared fpr and only compute the area under the curve in the considered region
-        --> (1) add class attribute, (2) add integration range at plot, (3) filter curves before intergration
     """
 
-    def compute(self) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:  # type: ignore
+    def compute(self) -> tuple[PImOResult, Tensor]:  # type: ignore
         """Compute the Area Under the Per-Image Overlap curves (AUPImO).
 
-        Returns: (thresholds, shared_fpr, tprs, image_classes, aucs)
-            [0] thresholds: shape (num_thresholds,), dtype as given in update()
-            [1] shared_fpr: shape (num_thresholds,), dtype float64, \in [0, 1]
-            [2] tprs: shape (num_images, num_thresholds), dtype float64,
-                        \in [0, 1] for anomalous images, `nan` for normal images
-            [3] image_classes: shape (num_images,), dtype int32, \in {0, 1}
-            [4] aucs: shape (num_images,), dtype float64, \in [0, 1]
+        Returns: (PImOResult, aucs)
+            [0] PImOResult: PImOResult, see `anomalib.utils.metrics.perimg.pimo.PImOResult` for details.
+            [1] aucs: shape (num_images,), dtype `float64`, \in [0, 1]
         """
 
         if self.is_empty:
-            return (
+            return PImOResult(
                 torch.empty(0, dtype=torch.float32),
                 torch.empty(0, dtype=torch.float64),
                 torch.empty(0, dtype=torch.float64),
-                torch.empty(0, dtype=torch.int64),
                 torch.empty(0, dtype=torch.float64),
-            )
+                torch.empty(0, dtype=torch.int32),
+            ), torch.empty(0, dtype=torch.float64)
 
-        thresholds, shared_fpr, tprs, image_classes = super().compute()
-
-        # TODO find lower bound from shared fpr
+        pimoresult = thresholds, fprs, shared_fpr, tprs, image_classes = super().compute()
 
         # `shared_fpr` and `tprs` are in descending order; `flip()` reverts to ascending order
-        aucs: Tensor = torch.trapezoid(tprs.flip(dims=(1,)), x=shared_fpr.flip(dims=(0,)), dim=1)
-        return thresholds, shared_fpr, tprs, image_classes, aucs
+        tprs_auc: Tensor = tprs.flip(dims=(1,))
+        shared_fpr_auc: Tensor = shared_fpr.flip(dims=(0,))
 
-    def plot_pimo_curves(
+        aucs: Tensor = torch.trapezoid(tprs_auc, x=shared_fpr_auc, dim=1)
+
+        return pimoresult, aucs
+
+    def plot_all_pimo_curves(
         self,
-        logfpr: bool = False,
-        show: str = "boxplot",
         ax: Axes | None = None,
-    ) -> tuple[Figure | None, Axes] | tuple[None, None]:
-        """Plot shared FPR vs Per-Image Overlap (PImO) curves."""
+    ) -> tuple[Figure | None, Axes]:
+        """Plot shared FPR vs Per-Image Overlap (PImO) curves (all curves).
+        Integration range is shown when `self.ubound < 1`.
+        """
+
         if self.is_empty:
             return None, None
 
-        thresholds, shared_fpr, tprs, image_classes, aucs = self.compute()
+        (thresholds, fprs, shared_fpr, tprs, image_classes), aucs = self.compute()
 
-        if show == "all":
-            fig, ax = plot_pimo_curves(
-                shared_fpr,
-                tprs,
-                image_classes,
-                ax=ax,
-                logfpr=logfpr,
-            )
-
-        elif show == "boxplot":
-            fig, ax = plot_pimo_curves_of_boxplot_stats(
-                shared_fpr,
-                tprs,
-                image_classes,
-                # ---
-                self.boxplot_stats(),
-                # ---
-                ax=ax,
-                logfpr=logfpr,
-            )
-
-        else:
-            raise ValueError(f"Expected argument `show` to be one of 'all' or 'boxplot', but got {show}.")
-
+        fig, ax = plot_all_pimo_curves(
+            shared_fpr,
+            tprs,
+            image_classes,
+            ax=ax,
+        )
         ax.set_xlabel("Mean FPR on Normal Images")
+
         return fig, ax
 
     def boxplot_stats(self) -> list[dict[str, str | int | float | None]]:
@@ -480,30 +200,55 @@ class AUPImO(PImO):
             list[dict[str, str | int | float | None]]: List of AUCs statistics from a boxplot.
             refer to `anomalib.utils.metrics.perimg.common._perimg_boxplot_stats()` for the keys and values.
         """
-        _, __, ___, image_classes, aucs = self.compute()
-
+        (_, __, ___, ____, image_classes), aucs = self.compute()
         stats = _perimg_boxplot_stats(values=aucs, image_classes=image_classes, only_class=1)
         return stats
+
+    def plot_boxplot_pimo_curves(
+        self,
+        ax: Axes | None = None,
+    ) -> tuple[Figure | None, Axes]:
+        """Plot shared FPR vs Per-Image Overlap (PImO) curves (boxplot images only).
+        The 'boxplot images' are those from the boxplot of AUPImO values (see `AUPImO.boxplot_stats()`).
+        Integration range is shown when `self.ubound < 1`.
+        """
+
+        if self.is_empty:
+            return None, None
+
+        (thresholds, fprs, shared_fpr, tprs, image_classes), aucs = self.compute()
+        fig, ax = plot_boxplot_pimo_curves(
+            shared_fpr,
+            tprs,
+            image_classes,
+            self.boxplot_stats(),
+            ax=ax,
+        )
+        ax.set_xlabel("Mean FPR on Normal Images")
+
+        return fig, ax
 
     def plot_boxplot(
         self,
         ax: Axes | None = None,
     ) -> tuple[Figure | None, Axes]:
         """Plot boxplot of AUPImO values."""
-        thresholds, shared_fpr, tprs, image_classes, aucs = self.compute()
-        fig, ax = _plot_aupimo_boxplot(
-            aucs=aucs,
-            image_classes=image_classes,
-            ax=ax,
-        )
+
+        if self.is_empty:
+            return None, None
+
+        (thresholds, fprs, shared_fpr, tprs, image_classes), aucs = self.compute()
+        fig, ax = plot_aupimo_boxplot(aucs, image_classes, ax=ax)
         return fig, ax
 
     def plot(
         self,
-        logfpr: bool = False,
         axes: Axes | ndarray | None = None,
     ) -> tuple[Figure | None, Axes | ndarray]:
         """Plot AUPImO boxplot with its statistics' PImO curves."""
+
+        if self.is_empty:
+            return None, None
 
         if axes is None:
             fig, axes = plt.subplots(1, 2, figsize=(14, 6), width_ratios=[6, 8])
@@ -513,7 +258,7 @@ class AUPImO(PImO):
             fig, axes = (None, axes)
 
         if isinstance(axes, Axes):
-            return self.plot_pimo_curves(ax=axes, logfpr=logfpr, show="boxplot")
+            return self.plot_boxplot_pimo_curves(ax=axes)
 
         if not isinstance(axes, ndarray):
             raise ValueError(f"Expected argument `axes` to be a matplotlib Axes or ndarray, but got {type(axes)}.")
@@ -525,9 +270,9 @@ class AUPImO(PImO):
 
         axes = axes.flatten()
         self.plot_boxplot(ax=axes[0])
-        axes[0].set_title("Boxplot")
-        self.plot_pimo_curves(ax=axes[1], logfpr=logfpr, show="boxplot")
-        axes[1].set_title("PImO Curves")
+        axes[0].set_title("AUC Boxplot")
+        self.plot_boxplot_pimo_curves(ax=axes[1])
+        axes[1].set_title("Curves")
         return fig, axes
 
 
@@ -538,5 +283,8 @@ class AULogPImO(PImO):
     """
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
         raise NotImplementedError("**coming up later**")
+        # # TODO log fpr option here
+        # # logfpr: whether to use log scale for the FPR axis
+        # # logfpr_epsilon: small positive number to avoid `log(0)`; used only if `logfpr` is True
+        # _format_axis_rate_metric_log(ax, axis=0, lower_limit=logfpr_epsilon)
