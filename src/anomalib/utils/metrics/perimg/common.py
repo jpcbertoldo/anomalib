@@ -3,9 +3,6 @@ from __future__ import annotations
 import matplotlib as mpl
 import numpy
 import torch
-from matplotlib import pyplot as plt
-from matplotlib.axes import Axes
-from matplotlib.pyplot import Figure
 from torch import Tensor
 
 # =========================================== ARGS VALIDATION ===========================================
@@ -83,6 +80,10 @@ def _validate_thresholds(thresholds: Tensor):
     if not torch.is_floating_point(thresholds):
         raise ValueError(f"Expected argument `thresholds` to have dtype float, but got {thresholds.dtype}.")
 
+    diffs = thresholds.diff()
+    if (diffs <= 0).any():
+        raise ValueError("Expected argument `thresholds` to be strictly increasing (thresholds[k+1] > thresholds[k]), ")
+
 
 def _validate_image_classes(image_classes: Tensor):
     if not isinstance(image_classes, Tensor):
@@ -133,6 +134,30 @@ def _validate_image_class(image_class: int | None):
             "Expected argument `image_class` to be either 0, 1 or None (respec., 'normal', 'anomalous', or 'both') "
             f"but got {image_class}."
         )
+
+
+def _validate_atleast_one_anomalous_image(image_classes: Tensor):
+    if (image_classes == 1).sum() == 0:
+        raise ValueError("Expected argument at least one anomalous image, but found none.")
+
+
+def _validate_atleast_one_normal_image(image_classes: Tensor):
+    if (image_classes == 0).sum() == 0:
+        raise ValueError("Expected argument at least one normal image, but found none.")
+
+
+def _validate_nonzero_rate(fpr: float | Tensor) -> None:
+    if isinstance(fpr, float):
+        fpr = torch.as_tensor(fpr)
+
+    elif not isinstance(fpr, Tensor):
+        raise ValueError(f"Expected argument `fpr` to be a float or torch.Tensor, but got {type(fpr)}.")
+
+    if fpr.dim() != 0:
+        raise ValueError(f"Expected argument `fpr` to be a scalar, but got a tensor of shape {fpr.shape}.")
+
+    if fpr <= 0 or fpr > 1:
+        raise ValueError(f"Expected argument `fpr` to be in (0, 1], but got {fpr}.")
 
 
 # =========================================== FUNCTIONAL ===========================================
@@ -224,92 +249,3 @@ def _perimg_boxplot_stats(
 
     records = sorted(records, key=lambda r: r["value"])
     return records
-
-
-# =========================================== PLOT UTILS ===========================================
-
-
-def _bounded_lims(ax: Axes, axis: int, bounds: tuple[float | None, float | None] = (None, None)):
-    """Snap X/Y-axis limits to stay within the given bounds."""
-
-    assert len(bounds) == 2, f"Expected argument `bounds` to be a tuple of size 2, but got size {len(bounds)}."
-
-    if axis == 0:
-        lims = ax.get_xlim()
-    elif axis == 1:
-        lims = ax.get_ylim()
-    else:
-        raise ValueError(f"Unknown axis {axis}. Must be 0 (X-axis) or 1 (Y-axis).")
-
-    newlims = list(lims)
-
-    if bounds[0] is not None and lims[0] < bounds[0]:
-        newlims[0] = bounds[0]
-
-    if bounds[1] is not None and lims[1] > bounds[1]:
-        newlims[1] = bounds[1]
-
-    if axis == 0:
-        ax.set_xlim(newlims)
-    else:
-        ax.set_ylim(newlims)
-
-
-# =========================================== PLOT ===========================================
-
-
-def _plot_perimg_metric_boxplot(
-    values: Tensor,
-    image_classes: Tensor,
-    annotate: bool = True,
-    only_class: int | None = None,
-    ax: Axes | None = None,
-) -> tuple[Figure | None, Axes]:
-    _validate_image_classes(image_classes)
-    _validate_image_class(only_class)
-
-    if values.ndim != 1:
-        raise ValueError(f"Expected argument `values` to be a 1D tensor, but got {values.ndim}D tensor.")
-
-    if values.shape != image_classes.shape:
-        raise ValueError(
-            "Expected arguments `values` and `image_classes` to have the same shape, "
-            f"but got {values.shape} and {image_classes.shape}."
-        )
-
-    if only_class not in image_classes:
-        raise ValueError(f"Argument `only_class` is {only_class}, but `image_classes` does not contain this class.")
-
-    fig, ax = plt.subplots() if ax is None else (None, ax)
-
-    # only consider images of the given class
-    imgs_mask = (
-        torch.ones_like(image_classes, dtype=torch.bool) if only_class is None else (image_classes == only_class)
-    )
-
-    ax.boxplot(
-        values[imgs_mask],
-        vert=False,
-        widths=0.5,
-        showmeans=True,
-        showcaps=True,
-        notch=False,
-    )
-    _ = ax.set_yticks([])
-
-    if annotate:
-        bp_stats = _perimg_boxplot_stats(values, image_classes, only_class=only_class)
-        num_images = len(values)
-        num_flierlo = len([s for s in bp_stats if s["statistic"] == "flierlo"])
-        num_flierhi = len([s for s in bp_stats if s["statistic"] == "flierhi"])
-        ax.annotate(
-            text=f"Number of images\n    total: {num_images}\n    fliers: {num_flierlo} low, {num_flierhi} high",
-            xy=(0.03, 0.95),
-            xycoords="axes fraction",
-            xytext=(0, 0),
-            textcoords="offset points",
-            annotation_clip=False,
-            verticalalignment="top",
-        )
-
-    return fig, ax
