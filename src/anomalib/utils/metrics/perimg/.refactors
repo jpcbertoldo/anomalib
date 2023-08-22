@@ -1,6 +1,10 @@
 Refactors to make at the final PR of the feature branch.
 
-1. Summary of my changes to the CHANGELOG
+1. summary of my changes to the CHANGELOG
+2. review codacy suggestions
+3. add functional interface to `__init__.py`
+4. `_validate*` at the begining of modules
+5. move `502_perimg_metrics.ipynb` to the folder `502_perimg_metrics`
 
 From https://github.com/openvinotoolkit/anomalib/pull/1247
 
