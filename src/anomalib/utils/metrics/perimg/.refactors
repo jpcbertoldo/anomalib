@@ -1,2 +1,11 @@
 Refactors to make at the final PR of the feature branch.
 
+From https://github.com/openvinotoolkit/anomalib/pull/1247
+
+1. rename `perimg` to `per_img`
+  1.1 in functions
+  1.2 the module
+2. rename`common.py` to `utils.py`
+3. add license header to files
+4. remove `.ignore`
+5. rename `atleast` to `at_least` (?)
