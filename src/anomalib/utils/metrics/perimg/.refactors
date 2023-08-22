@@ -1,5 +1,7 @@
 Refactors to make at the final PR of the feature branch.
 
+1. Summary of my changes to the CHANGELOG
+
 From https://github.com/openvinotoolkit/anomalib/pull/1247
 
 1. rename `perimg` to `per_img`
