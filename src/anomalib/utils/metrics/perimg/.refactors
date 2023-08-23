@@ -5,6 +5,7 @@ Refactors to make at the final PR of the feature branch.
 3. add functional interface to `__init__.py`
 4. `_validate*` at the begining of modules
 5. move `502_perimg_metrics.ipynb` to the folder `502_perimg_metrics`
+6. rename PImO to PIMO (upper `M` instead of lower `m`)? 
 
 From https://github.com/openvinotoolkit/anomalib/pull/1247
 
