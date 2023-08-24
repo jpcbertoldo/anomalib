@@ -7,6 +7,7 @@ Refactors to make at the final PR of the feature branch.
 5. move `502_perimg_metrics.ipynb` to the folder `502_perimg_metrics`
 6. rename PImO to PIMO (upper `M` instead of lower `m`)? 
 7. fix notebook kernel
+8. clean tmp sections in notebooks (at the end)
 
 From https://github.com/openvinotoolkit/anomalib/pull/1247
 
