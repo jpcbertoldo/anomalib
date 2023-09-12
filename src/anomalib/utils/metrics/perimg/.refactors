@@ -18,3 +18,7 @@ From https://github.com/openvinotoolkit/anomalib/pull/1247
 3. add license header to files
 4. remove `.ignore`
 5. rename `atleast` to `at_least` (?)
+
+From https://github.com/openvinotoolkit/anomalib/pull/1294
+
+1. seaborn instead of matplotlib boxplot graphs (?)
