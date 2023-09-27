@@ -11,7 +11,7 @@ Refactors to make at the final PR of the feature branch.
 
 From https://github.com/openvinotoolkit/anomalib/pull/1247
 
-1. rename `perimg` to `per_img`
+1. rename `perimg` to `per_img` (or to `pim`?)
   1.1 in functions
   1.2 the module
 2. rename`common.py` to `utils.py`
@@ -22,3 +22,10 @@ From https://github.com/openvinotoolkit/anomalib/pull/1247
 From https://github.com/openvinotoolkit/anomalib/pull/1294
 
 1. seaborn instead of matplotlib boxplot graphs (?)
+
+https://github.com/openvinotoolkit/anomalib/pull/1342
+
+1. rename `pim` to `per_img` (?)
+2. `thidx` by `thresh_idx`
+3. `img` by `image`
+3. `imgidx` by `image_idx`
