@@ -30,6 +30,7 @@ class SuperpixelCoreModel(nn.Module):
         input_size: tuple[int, int],
         layers: Sequence[str],
         backbone: str,
+        superpixel_relsize: float,
         num_neighbors: int = 9,
     ) -> None:
         super().__init__()
@@ -38,6 +39,8 @@ class SuperpixelCoreModel(nn.Module):
         self.layers = layers
         self.input_size = input_size
         self.num_neighbors = num_neighbors
+
+        self.superpixel_relsize = superpixel_relsize
 
         self.feature_extractor = TimmFeatureExtractor(
             backbone=self.backbone,
@@ -76,7 +79,7 @@ class SuperpixelCoreModel(nn.Module):
                     get_superpixels_watershed(
                         # img.permute(2, 1, 0).numpy(),
                         img.numpy(),
-                        superpixel_relsize=3e-4,
+                        superpixel_relsize=self.superpixel_relsize,
                         compactness=1e-4,
                     )
                     for img in image_original

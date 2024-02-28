@@ -21,6 +21,7 @@ class SuperpixelCore(MemoryBankMixin, AnomalyModule):
         layers: Sequence[str],
         coreset_sampling_ratio: float = 0.1,
         num_neighbors: int = 9,
+        **model_kwargs,
     ) -> None:
         super().__init__()
         self.model: SuperpixelCoreModel = SuperpixelCoreModel(
@@ -28,6 +29,7 @@ class SuperpixelCore(MemoryBankMixin, AnomalyModule):
             backbone=backbone,
             layers=layers,
             num_neighbors=num_neighbors,
+            **model_kwargs,
         )
         self.coreset_sampling_ratio = coreset_sampling_ratio
         self.embeddings: list[torch.Tensor] = []
