@@ -18,6 +18,7 @@ from .patchcore import Patchcore
 from .reverse_distillation import ReverseDistillation
 from .rkde import Rkde
 from .stfpm import Stfpm
+from .superpixelcore import SuperpixelCore
 from .uflow import Uflow
 from .winclip import WinClip
 
@@ -35,6 +36,7 @@ __all__ = [
     "Padim",
     "Patchcore",
     "ReverseDistillation",
+    "SuperpixelCore",
     "Rkde",
     "Stfpm",
     "Uflow",
