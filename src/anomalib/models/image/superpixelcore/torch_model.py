@@ -71,7 +71,7 @@ class SuperpixelCoreModel(nn.Module):
             )
             for layer, feature in features.items()
         }
-        embeddings = torch.cat([features[layer] for layer in self.layers])
+        embeddings = torch.cat([features[layer] for layer in self.layers], dim=1)
 
         superpixels = torch.from_numpy(
             np.stack(
