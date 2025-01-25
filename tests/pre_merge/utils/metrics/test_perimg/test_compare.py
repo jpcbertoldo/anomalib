@@ -13,7 +13,7 @@ from anomalib.utils.metrics.perimg.plot import (
 def pytest_generate_tests(metafunc):
     num_images = 100
     aucs1 = 0.8 * torch.ones(num_images)
-    aucs2 = torch.linspace(0.5, 0.9, num_images)
+    aucs2 = torch.linspace(0.5, 0.8, num_images)
     aucs3 = torch.sin(torch.linspace(0, torch.pi, num_images)).clip(0, 1)
 
     # add `nan`s (normal images)

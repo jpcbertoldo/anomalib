@@ -20,17 +20,15 @@ from torch import Tensor
 
 from .common import (
     _validate_and_convert_aucs,
-    _validate_and_convert_models_dict,
+    _validate_scores_per_model,
     _validate_and_convert_rate,
     _validate_and_convert_threshold,
-    _validate_atleast_one_anomalous_image,
-    _validate_atleast_one_normal_image,
     _validate_image_class,
     _validate_image_classes,
-    _validate_perimg_rate_curves,
+    _validate_per_image_rate_curves,
     _validate_rate_curve,
     _validate_thresholds,
-    perimg_boxplot_stats,
+    per_image_boxplot_stats,
 )
 
 # =========================================== FORMAT ===========================================
@@ -169,7 +167,7 @@ def _format_axis_imgidx(ax, num_imgs: int):
 # =========================================== GENERIC ===========================================
 
 
-def _plot_perimg_metric_boxplot(
+def _plot_per_image_metric_boxplot(
     ax: Axes,
     values: Tensor,
     image_classes: Tensor,
@@ -222,11 +220,11 @@ def _plot_perimg_metric_boxplot(
     )
 
 
-def _plot_perimg_curves(
+def _plot_per_image_curves(
     ax: Axes,
     x: Tensor,
     ys: Tensor,
-    *kwargs_perimg: dict[str, Any | None] | None,
+    *kwargs_per_image: dict[str, Any | None] | None,
     **kwargs_shared,
 ) -> Axes:
     """
@@ -234,14 +232,14 @@ def _plot_perimg_curves(
         ax: matplotlib Axes
         x: shape (n,)
         ys: shape (num_curves, n)
-        *kwargs_perimg: keyword arguments passed to `ax.plot()` and SPECIFIC to each curve
+        *kwargs_per_image: keyword arguments passed to `ax.plot()` and SPECIFIC to each curve
                             a sequence of objects of length `num_curves`.
                             If None, that curve will not be ploted.
                             Otherwise, it should be a dict of keyword arguments passed to `ax.plot()`.
 
         **kwargs_shared: keyword arguments passed to `ax.plot()` and SHARED by all curves
 
-        If both `kwargs_perimg` and `kwargs_shared` have the same key, the value in `kwargs_perimg` will be used.
+        If both `kwargs_per_image` and `kwargs_shared` have the same key, the value in `kwargs_per_image` will be used.
     """
 
     if not isinstance(x, Tensor) or not isinstance(ys, Tensor):
@@ -262,23 +260,23 @@ def _plot_perimg_curves(
         )
 
     num_curves = ys.shape[0]
-    num_kwargs_perimg = len(kwargs_perimg)
+    num_kwargs_per_image = len(kwargs_per_image)
 
-    if num_kwargs_perimg != num_curves:
+    if num_kwargs_per_image != num_curves:
         raise ValueError(
             "Expected the number of keyword arguments to be equal to the number of curves, "
-            f"but got {num_kwargs_perimg} and {num_curves}, respectively."
+            f"but got {num_kwargs_per_image} and {num_curves}, respectively."
         )
 
-    othertypes = {type(kws) for kws in kwargs_perimg if kws is not None and not isinstance(kws, dict)}
+    othertypes = {type(kws) for kws in kwargs_per_image if kws is not None and not isinstance(kws, dict)}
 
     if len(othertypes) > 0:
         raise ValueError(
-            "Expected arguments `kwargs_perimg` to be a dict or None, "
+            "Expected arguments `kwargs_per_image` to be a dict or None, "
             f"but found {sorted(othertypes, key=lambda t: t.__name__)} instead."
         )
 
-    for y, kwargs_specific in zip(ys, kwargs_perimg):
+    for y, kwargs_specific in zip(ys, kwargs_per_image):
         if kwargs_specific is None:
             continue  # skip this curve
 
@@ -296,13 +294,13 @@ def plot_aupimo_boxplot(
     ax: Axes | None = None,
 ) -> tuple[Figure | None, Axes]:
     _validate_and_convert_aucs(aucs, nan_allowed=True)
-    _validate_atleast_one_anomalous_image(image_classes)
+    _validate_at_least_one_anomalous_image(image_classes)
 
     fig, ax = plt.subplots() if ax is None else (None, ax)
 
-    bp_stats = perimg_boxplot_stats(aucs, image_classes, only_class=1)
+    bp_stats = per_image_boxplot_stats(aucs, image_classes, only_class=1)
 
-    _plot_perimg_metric_boxplot(
+    _plot_per_image_metric_boxplot(
         ax=ax,
         values=aucs,
         image_classes=image_classes,
@@ -358,7 +356,7 @@ def plot_all_pimo_curves(
     """
     # ** validate **
     _validate_rate_curve(shared_fpr)
-    _validate_perimg_rate_curves(tprs, nan_allowed=True)  # normal images have `nan`s
+    _validate_per_image_rate_curves(tprs, nan_allowed=True)  # normal images have `nan`s
     _validate_image_classes(image_classes)
 
     if tprs.shape[0] != image_classes.shape[0]:
@@ -367,15 +365,15 @@ def plot_all_pimo_curves(
             f"but got {tprs.shape[0]} images and {image_classes.shape[0]} images, respectively."
         )
 
-    _validate_atleast_one_anomalous_image(image_classes)
+    _validate_at_least_one_anomalous_image(image_classes)
     # there may be `nan`s but only in the normal images
     # in the curves of anomalous images, there should NOT be `nan`s
-    _validate_perimg_rate_curves(tprs[image_classes == 1], nan_allowed=False)
+    _validate_per_image_rate_curves(tprs[image_classes == 1], nan_allowed=False)
 
     # ** plot **
     fig, ax = plt.subplots(figsize=(7, 6)) if ax is None else (None, ax)
 
-    _plot_perimg_curves(
+    _plot_per_image_curves(
         ax,
         shared_fpr,
         tprs,
@@ -415,7 +413,7 @@ def plot_boxplot_pimo_curves(
             keep the indices of the anomalous images.
 
         bp_stats: list of dicts, each dict is a boxplot stat of AUPImO values
-                  refer to `anomalib.utils.metrics.perimg.common.perimg_boxplot_stats()`
+                  refer to `anomalib.utils.metrics.per_image.common.per_image_boxplot_stats()`
 
     Returns:
         fig, ax
@@ -423,7 +421,7 @@ def plot_boxplot_pimo_curves(
 
     # ** validate **
     _validate_rate_curve(shared_fpr)
-    _validate_perimg_rate_curves(tprs, nan_allowed=True)  # normal images have `nan`s
+    _validate_per_image_rate_curves(tprs, nan_allowed=True)  # normal images have `nan`s
     _validate_image_classes(image_classes)
 
     if tprs.shape[0] != image_classes.shape[0]:
@@ -432,15 +430,15 @@ def plot_boxplot_pimo_curves(
             f"but got {tprs.shape[0]} images and {image_classes.shape[0]} images, respectively."
         )
 
-    _validate_atleast_one_anomalous_image(image_classes)
+    _validate_at_least_one_anomalous_image(image_classes)
     # there may be `nan`s but only in the normal images
     # in the curves of anomalous images, there should NOT be `nan`s
-    _validate_perimg_rate_curves(tprs[image_classes == 1], nan_allowed=False)
+    _validate_per_image_rate_curves(tprs[image_classes == 1], nan_allowed=False)
 
     if len(bp_stats) == 0:
         raise ValueError("Expected argument `bp_stats` to have at least one dict, but got none.")
 
-    # ** kwargs_perimg **
+    # ** kwargs_per_image **
 
     # it is sorted so that only the first one has a label (others are plotted but don't show in the legend)
     imgidxs_toplot_fliers: list[int] = sorted(
@@ -448,7 +446,7 @@ def plot_boxplot_pimo_curves(
     )
     imgidxs_toplot_others = {s["imgidx"] for s in bp_stats if s["statistic"] not in ("flierlo", "flierhi")}
 
-    kwargs_perimg = []
+    kwargs_per_image = []
     num_images = len(image_classes)
 
     for imgidx in range(num_images):
@@ -461,13 +459,13 @@ def plot_boxplot_pimo_curves(
             else:
                 kw["label"] = None
 
-            kwargs_perimg.append(kw)
+            kwargs_per_image.append(kw)
 
             continue
 
         if imgidx not in imgidxs_toplot_others:
             # don't plot this curve
-            kwargs_perimg.append(None)  # type: ignore
+            kwargs_per_image.append(None)  # type: ignore
             continue
 
         imgidx_stats = [s for s in bp_stats if s["imgidx"] == imgidx]
@@ -478,13 +476,13 @@ def plot_boxplot_pimo_curves(
             stat_dict["statistic"] = " & ".join(s["statistic"] for s in imgidx_stats)  # type: ignore
 
         stat, nearest = stat_dict["statistic"], stat_dict["nearest"]
-        kwargs_perimg.append(dict(label=f"{stat} (AUPImO={nearest:.1%}) (imgidx={imgidx})"))
+        kwargs_per_image.append(dict(label=f"{stat} (AUPImO={nearest:.1%}) (imgidx={imgidx})"))
 
     # ** plot **
 
     fig, ax = plt.subplots(figsize=(7, 6)) if ax is None else (None, ax)
 
-    _plot_perimg_curves(ax, shared_fpr, tprs, *kwargs_perimg)
+    _plot_per_image_curves(ax, shared_fpr, tprs, *kwargs_per_image)
 
     # ** legend **
 
@@ -547,7 +545,7 @@ def plot_boxplot_logpimo_curves(
             keep the indices of the anomalous images.
 
         bp_stats: list of dicts, each dict is a boxplot stat of AULogPImO values
-                  refer to `anomalib.utils.metrics.perimg.common.perimg_boxplot_stats()`
+                  refer to `anomalib.utils.metrics.per_image.common.per_image_boxplot_stats()`
 
     Returns:
         fig, ax
@@ -722,7 +720,7 @@ def plot_pimfpr_curves_norm_vs_anom(
 
     # ** validate ** [GENERIC]
     _validate_rate_curve(shared_fpr)
-    _validate_perimg_rate_curves(fprs, nan_allowed=True)  # anomalous images may have `nan`s if all pixels are anomalous
+    _validate_per_image_rate_curves(fprs, nan_allowed=True)  # anomalous images may have `nan`s if all pixels are anomalous
     _validate_image_classes(image_classes)
 
     if fprs.shape[0] != image_classes.shape[0]:
@@ -734,17 +732,17 @@ def plot_pimfpr_curves_norm_vs_anom(
     # there may be `nan`s but only in the anomalous images
     # in the curves of normal images, there should NOT be `nan`s
     if (image_classes == 0).any():
-        _validate_perimg_rate_curves(fprs[image_classes == 0], nan_allowed=False)
+        _validate_per_image_rate_curves(fprs[image_classes == 0], nan_allowed=False)
 
     # ** validate ** [SPECIFIC]
     # it's a normal vs. anomalous plot, so there should be at least one of each
-    _validate_atleast_one_anomalous_image(image_classes)
-    _validate_atleast_one_normal_image(image_classes)
+    _validate_at_least_one_anomalous_image(image_classes)
+    _validate_at_least_one_normal_image(image_classes)
 
     fig, ax = plt.subplots(figsize=(7, 7)) if ax is None else (None, ax)
 
     # ** plot **
-    kwargs_perimg = [
+    kwargs_per_image = [
         dict(
             # color the lines by the image class; normal = blue, anomalous = red
             color="blue" if img_cls == 0 else "red",
@@ -755,14 +753,14 @@ def plot_pimfpr_curves_norm_vs_anom(
         for imgidx, img_cls in enumerate(image_classes)
     ]
     # `[0][0]`: first `[0]` is for the tuple from `numpy.where()`, second `[0]` is for the first index
-    kwargs_perimg[numpy.where(image_classes == 0)[0][0]]["label"] = "Normal (blue)"
-    kwargs_perimg[numpy.where(image_classes == 1)[0][0]]["label"] = "Anomalous (red)"
+    kwargs_per_image[numpy.where(image_classes == 0)[0][0]]["label"] = "Normal (blue)"
+    kwargs_per_image[numpy.where(image_classes == 1)[0][0]]["label"] = "Anomalous (red)"
 
-    _plot_perimg_curves(
+    _plot_per_image_curves(
         ax,
         shared_fpr,
         fprs,
-        *kwargs_perimg,
+        *kwargs_per_image,
         # shared kwargs
         alpha=0.3,
     )
@@ -799,7 +797,7 @@ def plot_pimfpr_curves_norm_only(
 
     # ** validate **
     _validate_rate_curve(shared_fpr)
-    _validate_perimg_rate_curves(fprs, nan_allowed=True)  # anomalous images may have `nan`s if all pixels are anomalous
+    _validate_per_image_rate_curves(fprs, nan_allowed=True)  # anomalous images may have `nan`s if all pixels are anomalous
     _validate_image_classes(image_classes)
 
     if fprs.shape[0] != image_classes.shape[0]:
@@ -809,15 +807,15 @@ def plot_pimfpr_curves_norm_only(
         )
 
     # it's a normal-only plot, so there should be at least one normal image
-    _validate_atleast_one_normal_image(image_classes)
-    _validate_perimg_rate_curves(fprs[image_classes == 0], nan_allowed=False)
+    _validate_at_least_one_normal_image(image_classes)
+    _validate_per_image_rate_curves(fprs[image_classes == 0], nan_allowed=False)
 
     # ** compute **
 
     # there may be `nan`s but only in the anomalous images
     # in the curves of normal images, there should NOT be `nan`s
     if (image_classes == 0).any():
-        _validate_perimg_rate_curves(fprs[image_classes == 0], nan_allowed=False)
+        _validate_per_image_rate_curves(fprs[image_classes == 0], nan_allowed=False)
 
     fprs_norm = fprs[image_classes == 0]
     mean = fprs_norm.mean(dim=0)
@@ -828,8 +826,8 @@ def plot_pimfpr_curves_norm_only(
 
     fig, ax = plt.subplots(figsize=(7, 7)) if ax is None else (None, ax)
 
-    # ** plot [perimg] **
-    _plot_perimg_curves(
+    # ** plot [per_image] **
+    _plot_per_image_curves(
         ax,
         shared_fpr,
         fprs,
@@ -890,7 +888,7 @@ def plot_th_fpr_curves_norm_only(
     # ** validate **
     _validate_thresholds(thresholds)
     _validate_rate_curve(shared_fpr)
-    _validate_perimg_rate_curves(fprs, nan_allowed=True)  # anomalous images may have `nan`s if all pixels are anomalous
+    _validate_per_image_rate_curves(fprs, nan_allowed=True)  # anomalous images may have `nan`s if all pixels are anomalous
     _validate_image_classes(image_classes)
 
     if fprs.shape[0] != image_classes.shape[0]:
@@ -900,8 +898,8 @@ def plot_th_fpr_curves_norm_only(
         )
 
     # it's a normal-only plot, so there should be at least one normal image
-    _validate_atleast_one_normal_image(image_classes)
-    _validate_perimg_rate_curves(fprs[image_classes == 0], nan_allowed=False)
+    _validate_at_least_one_normal_image(image_classes)
+    _validate_per_image_rate_curves(fprs[image_classes == 0], nan_allowed=False)
 
     def _validate_and_convert_bound_tuple(tup: tuple[Tensor | float, Tensor | float | int]) -> tuple[Tensor, Tensor]:
         if not isinstance(tup, Sequence):
@@ -942,7 +940,7 @@ def plot_th_fpr_curves_norm_only(
     fig, ax = plt.subplots(figsize=(7, 7)) if ax is None else (None, ax)
 
     # ** plot [curves] **
-    _plot_perimg_curves(
+    _plot_per_image_curves(
         ax,
         thresholds,
         fprs,
@@ -1017,7 +1015,7 @@ def plot_th_fpr_curves_norm_only(
 # =========================================== COMPARE ===========================================
 
 
-def compare_models_perimg(
+def compare_models_per_image(
     models: dict[str, Tensor],
     metric_name: str,
     higher_is_better: bool = True,
@@ -1054,7 +1052,7 @@ def compare_models_perimg(
     ]
 
     # ** validate **
-    models = _validate_and_convert_models_dict(models)
+    models = _validate_scores_per_model(models)
 
     # ** plot **
 
@@ -1108,7 +1106,7 @@ def compare_models_perimg(
     return fig, ax
 
 
-def compare_models_perimg_rank(
+def compare_models_per_image_rank(
     models: dict[str, Tensor],
     metric_name: str,
     higher_is_better: bool = True,
@@ -1146,7 +1144,7 @@ def compare_models_perimg_rank(
     ]
 
     # ** validate **
-    models = _validate_and_convert_models_dict(models)
+    models = _validate_scores_per_model(models)
 
     if atol is not None:
         atol = float(_validate_and_convert_rate(atol, nonzero=True, nonone=False))
@@ -1212,7 +1210,7 @@ def compare_models_perimg_rank(
         # excluding the `nan`s
         imgidxs = df["index"].unique()
 
-        atleast_one_tie = False
+        at_least_one_tie = False
         for imgidx in imgidxs:
             rank_2_model = imgidx_rank_2_model.loc[imgidx]
             # it can be (1, 2, 3), but also (1.5, 1.5, 3) for example
@@ -1230,13 +1228,13 @@ def compare_models_perimg_rank(
                         [rank1, rank2],
                         color="red",
                         linewidth=2,
-                        label=f"Within Tolerance ({atol:.2%})" if not atleast_one_tie else None,
+                        label=f"Within Tolerance ({atol:.2%})" if not at_least_one_tie else None,
                     )
-                    atleast_one_tie = True
+                    at_least_one_tie = True
 
     # ** format **
 
-    add_legend_entry_for_ties = (atol is not None) and atleast_one_tie
+    add_legend_entry_for_ties = (atol is not None) and at_least_one_tie
     ax.legend(
         loc="upper right",
         title="Model",

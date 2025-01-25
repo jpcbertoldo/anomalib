@@ -37,7 +37,7 @@ Utilities are also provided to measure statistics over the per-image metric valu
 """
 
 from .binclf_curve import PerImageBinClfCurve
-from .common import compare_models_nonparametric, compare_models_parametric, perimg_boxplot_stats
+from .common import compare_models_pairwise_wilcoxon, compare_models_pairwise_ttest, perimg_boxplot_stats
 from .pimo import AULogPImO, AUPImO, PImO
 
 __all__ = [
@@ -45,7 +45,7 @@ __all__ = [
     "PImO",
     "AUPImO",
     "AULogPImO",
-    "compare_models_nonparametric",
-    "compare_models_parametric",
+    "compare_models_pairwise_wilcoxon",
+    "compare_models_pairwise_ttest",
     "perimg_boxplot_stats",
 ]
